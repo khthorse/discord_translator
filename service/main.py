@@ -7,12 +7,11 @@ import os
 import threading
 import time
 from pathlib import Path
-import json
-from collections import defaultdict
 
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 
 def _add_nvidia_dll_dirs() -> None:
     """Windows: if cuBLAS/cuDNN were installed with pip (nvidia-* packages), make their DLLs findable."""
@@ -26,6 +25,7 @@ def _add_nvidia_dll_dirs() -> None:
         for bin_dir in Path(base).glob("*/bin"):
             os.add_dll_directory(str(bin_dir))
             os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+
 
 _add_nvidia_dll_dirs()
 
@@ -44,8 +44,7 @@ from translators import build_translator  # noqa: E402
 # ---------------------------------------------------------------- config ---
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "large-v3-turbo")
 WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cuda")  # "cuda" or "cpu"
-WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "float16")  # "float16" on GPU, "int8" on CPU"
-LANGUAGES = ("es", "en")  # the pair we translate between
+WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "float16")  # "float16" on GPU, "int8" on CPU
 HOST = os.getenv("SERVICE_HOST", "127.0.0.1")  # keep local: this endpoint has no authentication
 PORT = int(os.getenv("SERVICE_PORT", "8000"))
 
@@ -58,6 +57,7 @@ print(f"Translator: {type(translator).__name__}")
 gpu_lock = threading.Lock()
 
 app = FastAPI()
+
 
 def wav_to_whisper_audio(wav_bytes: bytes) -> np.ndarray:
     """Turn the bot's WAV (16-bit PCM, 48 kHz stereo) into what Whisper wants:
@@ -80,13 +80,28 @@ def wav_to_whisper_audio(wav_bytes: bytes) -> np.ndarray:
         samples = resample_poly(samples, 16000 // g, rate // g)  # 48 kHz -> 16 kHz (low-pass included)
     return np.ascontiguousarray(samples, dtype=np.float32)
 
-# Short Spanish clips are often mislabeled as these close relatives, so treat them as Spanish.
-SPANISH_LOOKALIKES = {"gl", "ca", "pt"}
 
-def pick_language(audio) -> str | None:
-    """Spanish and English are the main pair. Anything else (Norwegian, Russian...) is kept as
-    its own language, because forcing it into 'en' or 'es' makes Whisper output a translation
-    instead of a transcript."""
+def split_codes(value: str) -> list[str]:
+    """'es, en,,es' -> ['es', 'en'] (trimmed, lowercase, no empties, no duplicates, in order)."""
+    seen: list[str] = []
+    for part in value.split(","):
+        code = part.strip().lower()
+        if code and code not in seen:
+            seen.append(code)
+    return seen
+
+
+def pick_language(audio, candidates: list[str]) -> str | None:
+    """Decide which language this clip is in.
+
+    The bot tells us which languages are possible (the server's rooms plus the speaker's own
+    language). Choosing only among those avoids the random mislabels Whisper makes on short
+    clips (French, Swedish...) and, with a single candidate, skips detection entirely.
+    With no candidates we take Whisper's top guess. Forcing a wrong language is worse than
+    guessing, since Whisper then outputs a translation instead of a transcript.
+    """
+    if len(candidates) == 1:
+        return candidates[0]
     try:
         _, _, probs = model.detect_language(audio)
         p = dict(probs)
@@ -94,28 +109,18 @@ def pick_language(audio) -> str | None:
         print(f"Language detection failed, using auto-detect: {err}")
         return None
 
-    top = max(p, key=p.get)
-    if top in LANGUAGES:
-        return top
-    if top in SPANISH_LOOKALIKES:
-        return "es"
-    return top
+    pool = candidates or list(p)
+    return max(pool, key=lambda code: p.get(code, 0.0))
 
-# Store user language preferences
-user_preferences = defaultdict(str)  # Default to empty string (process all languages)
 
-# Function to set user language preference
-def set_user_language(user_id: str, language: str):
-    """Set a user's preferred language for translation"""
-    user_preferences[user_id] = language
-    print(f"User {user_id} language set to {language}")
-
-# Function to get user language preference  
-def get_user_language(user_id: str) -> str:
-    """Get a user's preferred language for translation"""
-    return user_preferences.get(user_id, "")
-
-def process(wav_bytes: bytes, speaker: str) -> dict:
+def process(
+    wav_bytes: bytes,
+    speaker: str,
+    candidates: list[str],
+    targets: list[str],
+    translate_from: str,
+    translate_enabled: bool,
+) -> dict:
     t0 = time.perf_counter()
 
     try:
@@ -124,7 +129,7 @@ def process(wav_bytes: bytes, speaker: str) -> dict:
         raise HTTPException(status_code=400, detail=f"bad audio: {err}")
 
     with gpu_lock:
-        lang = pick_language(audio)
+        lang = pick_language(audio, candidates)
         segments, info = model.transcribe(
             audio,
             language=lang,
@@ -138,56 +143,56 @@ def process(wav_bytes: bytes, speaker: str) -> dict:
 
     t1 = time.perf_counter()
 
-    translation = None
-    if text:
-        # Check if this speaker has a specific language preference
-        user_lang = get_user_language(speaker)
-
-        # If user has a preference and it doesn't match the detected language, ignore
-        if user_lang and user_lang != lang:
-            print(f"Skipping {speaker}'s utterance: detected {lang}, expected {user_lang}")
-            return {"language": lang, "original": text, "translation": None}
-
-        # English -> Spanish. Everything else (Spanish, Norwegian, ...) -> English.
-        target = "es" if lang == "en" else "en"
-        try:
-            translation = translator.translate(text, lang, target)
-        except Exception as err:
-            print(f"Translation failed: {err}")  # still return the transcript
+    # Translate only when this speaker's settings allow it. `translate_from` is the language the
+    # speaker has set: speech in any other language (a Spanish speaker's occasional English)
+    # is left alone. Empty means "any language".
+    translations: dict[str, str] = {}
+    allowed = translate_enabled and (not translate_from or lang == translate_from)
+    if text and lang and allowed:
+        for target in targets:
+            if target == lang:
+                continue
+            try:
+                translations[target] = translator.translate(text, lang, target)
+            except Exception as err:
+                print(f"Translation {lang}->{target} failed: {err}")  # keep the other targets
 
     t2 = time.perf_counter()
     print(
-        f"[{speaker}] ({lang}) {text!r} -> {translation!r}  "
+        f"[{speaker}] ({lang}) {text!r} -> {translations or None}  "
         f"[stt {t1 - t0:.2f}s, translate {t2 - t1:.2f}s]"
     )
-    return {"language": lang, "original": text, "translation": translation}
+    return {"language": lang, "original": text, "translations": translations}
+
 
 @app.post("/process")
-async def process_endpoint(request: Request, speaker: str = "unknown"):
+async def process_endpoint(
+    request: Request,
+    speaker: str = "unknown",
+    candidates: str = "",  # possible spoken languages, e.g. "es,en"
+    targets: str = "",  # languages to translate into, e.g. "en,es"
+    translate_from: str = "",  # only translate speech in this language ("" = any)
+    translate: bool = True,  # false = never translate this speaker
+):
     body = await request.body()
     if len(body) < 1000:
         raise HTTPException(status_code=400, detail="audio too short")
     # Whisper blocks, so run it in a worker thread and keep the web server responsive.
-    return await run_in_threadpool(process, body, speaker)
+    return await run_in_threadpool(
+        process,
+        body,
+        speaker,
+        split_codes(candidates),
+        split_codes(targets),
+        translate_from.strip().lower(),
+        translate,
+    )
+
 
 @app.get("/health")
 def health():
     return {"ok": True, "model": WHISPER_MODEL, "translator": type(translator).__name__}
 
-# Add endpoint to set user language preferences
-@app.post("/user_language")
-async def set_user_language_endpoint(user_id: str, language: str):
-    """Set a user's preferred language for translation"""
-    user_preferences[user_id] = language
-    print(f"User {user_id} language set to {language}")
-    return {"status": "success", "user_id": user_id, "language": language}
-
-# Add endpoint to get user language preferences (optional)
-@app.get("/user_language/{user_id}")
-async def get_user_language_endpoint(user_id: str):
-    """Get a user's preferred language for translation"""
-    language = user_preferences.get(user_id, "")
-    return {"user_id": user_id, "language": language}
 
 if __name__ == "__main__":
     uvicorn.run(app, host=HOST, port=PORT)

@@ -13,14 +13,29 @@ import re
 
 import httpx
 
+# Language codes (the ones Whisper uses) -> names for the LLM prompt. An unknown code is sent
+# as-is, which most LLMs understand, so a missing entry is not fatal.
 LANGUAGE_NAMES = {
-    "es": "Spanish",
     "en": "English",
+    "es": "Spanish",
     "no": "Norwegian",
     "nn": "Norwegian (Nynorsk)",
-    "da": "Danish",
     "sv": "Swedish",
+    "da": "Danish",
+    "fi": "Finnish",
+    "de": "German",
+    "fr": "French",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "nl": "Dutch",
+    "pl": "Polish",
     "ru": "Russian",
+    "uk": "Ukrainian",
+    "tr": "Turkish",
+    "ar": "Arabic",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "zh": "Chinese",
 }
 
 
