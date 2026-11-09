@@ -82,16 +82,27 @@ def wav_to_whisper_audio(wav_bytes: bytes) -> np.ndarray:
     return np.ascontiguousarray(samples, dtype=np.float32)
 
 
+# Short Spanish clips are often mislabeled as these close relatives, so treat them as Spanish.
+SPANISH_LOOKALIKES = {"gl", "ca", "pt"}
+
+
 def pick_language(audio) -> str | None:
-    """Whisper can detect ~100 languages, and short clips often get mislabeled (Portuguese,
-    Galician...). We only care about Spanish vs English, so compare just those two."""
+    """Spanish and English are the main pair. Anything else (Norwegian, Russian...) is kept as
+    its own language, because forcing it into 'en' or 'es' makes Whisper output a translation
+    instead of a transcript."""
     try:
         _, _, probs = model.detect_language(audio)
         p = dict(probs)
-        return max(LANGUAGES, key=lambda lang: p.get(lang, 0.0))
     except Exception as err:  # fall back to Whisper's own detection
         print(f"Language detection failed, using auto-detect: {err}")
         return None
+
+    top = max(p, key=p.get)
+    if top in LANGUAGES:
+        return top
+    if top in SPANISH_LOOKALIKES:
+        return "es"
+    return top
 
 
 def process(wav_bytes: bytes, speaker: str) -> dict:
@@ -119,7 +130,8 @@ def process(wav_bytes: bytes, speaker: str) -> dict:
 
     translation = None
     if text:
-        target = "en" if lang == "es" else "es"
+        # English -> Spanish. Everything else (Spanish, Norwegian, ...) -> English.
+        target = "es" if lang == "en" else "en"
         try:
             translation = translator.translate(text, lang, target)
         except Exception as err:

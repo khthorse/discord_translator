@@ -13,7 +13,15 @@ import re
 
 import httpx
 
-LANGUAGE_NAMES = {"es": "Spanish", "en": "English"}
+LANGUAGE_NAMES = {
+    "es": "Spanish",
+    "en": "English",
+    "no": "Norwegian",
+    "nn": "Norwegian (Nynorsk)",
+    "da": "Danish",
+    "sv": "Swedish",
+    "ru": "Russian",
+}
 
 
 class Translator:
