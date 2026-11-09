@@ -19,7 +19,7 @@ service/     Python. Audio in -> faster-whisper -> translator -> text out.
    Open the generated URL to invite the bot.
 
 ## 2. Configure
-Copy `.env.example` to `.env` and fill in the three Discord values. Leave `TRANSLATOR=none` for the first test.
+Copy `.env.example` to `.env` and fill in the three Discord values. Leave `TRANSLATOR=none` for the first transcription test. To actually translate English/Spanish, choose `google` with a Google API key or `openai` with a working OpenAI-compatible endpoint.
 
 ## 3. Start the Python service
 ```
@@ -41,8 +41,18 @@ npm install
 npm run register      (once)
 npm start
 ```
-In Discord: join a voice channel, then run `/join` in the text channel where you want subtitles.
-`/leave` disconnects the bot.
+In Discord, create `#english`, `#español`, and `#live-translations`. Give the bot View Channel + Send Messages in all three channels. Then, as a server admin, configure:
+```
+/language-channel set language:en channel:#english
+/language-channel set language:es channel:#español
+```
+Run `/join` in `#live-translations` after joining a voice channel. `/leave` disconnects the bot.
+
+The two language rooms receive speech in that language, whether it was spoken originally or translated from the other language. `#live-translations` keeps the combined format: translation first, original underneath. Language mappings are saved in `voice-bot/language-channels.json` and survive bot restarts.
+
+To add another language room later, use `/language-channel set` with its language code and text channel. `/language-channel list` shows mappings; `/language-channel remove` removes one. These commands require the Discord **Manage Server** permission.
+
+Bot subtitle messages are automatically deleted after `MESSAGE_DELETE_SECONDS` (default 300 seconds / 5 minutes). Set it to `0` to disable. Only messages sent by the bot are scheduled for deletion; user messages are never touched. Pending deletion timers are in memory, so a bot restart cancels timers for messages already sent.
 
 ## First test (no translation)
 Set `RECORD_WAV=true` and `TRANSLATOR=none`, talk, and check:

@@ -26,6 +26,7 @@ const {
   MAX_UTTERANCE_MS = '20000', // cut very long monologues so subtitles don't lag behind
   SHOW_ORIGINAL = 'true', // also show the original text below the translation
   RECORD_WAV = 'false', // TESTING ONLY: save each utterance to ./recordings
+  MESSAGE_DELETE_SECONDS = '300', // delete bot subtitles after this many seconds; 0 disables
 } = process.env;
 
 if (!DISCORD_TOKEN) {
@@ -41,6 +42,8 @@ const minMs = Number(MIN_UTTERANCE_MS);
 const maxMs = Number(MAX_UTTERANCE_MS);
 const showOriginal = SHOW_ORIGINAL === 'true';
 const recordWav = RECORD_WAV === 'true';
+const messageDeleteSeconds = Math.max(0, Number(MESSAGE_DELETE_SECONDS) || 0);
+const languageChannelsFile = new URL('./language-channels.json', import.meta.url);
 
 if (recordWav) fs.mkdirSync('recordings', { recursive: true });
 
@@ -49,8 +52,43 @@ if (recordWav) fs.mkdirSync('recordings', { recursive: true });
 /** @type {Map<string, {connection: import('@discordjs/voice').VoiceConnection, guild: import('discord.js').Guild, textChannel: import('discord.js').TextBasedChannel, active: Set<string>, queue: Promise<void>}>} */
 const sessions = new Map();
 
-// Store user language preferences
-const userPreferences = new Map();
+// Per-guild language -> text-channel mapping. Stored on disk so it survives restarts.
+function readLanguageChannels() {
+  try {
+    return JSON.parse(fs.readFileSync(languageChannelsFile, 'utf8'));
+  } catch (err) {
+    if (err.code !== 'ENOENT') console.error('Could not read language-channels.json:', err);
+    return {};
+  }
+}
+let languageChannels = readLanguageChannels();
+
+function saveLanguageChannels() {
+  fs.writeFileSync(languageChannelsFile, JSON.stringify(languageChannels, null, 2) + '\n');
+}
+
+function getLanguageChannelId(guildId, language) {
+  return languageChannels[guildId]?.[language] ?? null;
+}
+
+async function sendBotMessage(channel, content) {
+  if (!channel?.isTextBased?.() || !channel.isSendable?.()) return null;
+  const message = await channel.send({
+    content: content.slice(0, 1900),
+    allowedMentions: { parse: [] },
+  });
+  if (messageDeleteSeconds > 0) {
+    const timer = setTimeout(() => {
+      message.delete().catch((err) => {
+        if (err.code !== 10008 && err.code !== 50013) {
+          console.warn('Could not auto-delete bot subtitle:', err.message);
+        }
+      });
+    }, messageDeleteSeconds * 1000);
+    timer.unref?.();
+  }
+  return message;
+}
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
@@ -67,7 +105,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.commandName === 'join') await onJoin(interaction);
     else if (interaction.commandName === 'leave') await onLeave(interaction);
-    else if (interaction.commandName === 'language') await onLanguage(interaction);
+    else if (interaction.commandName === 'language-channel') await onLanguageChannel(interaction);
   } catch (err) {
     console.error(err);
     const msg = 'Something went wrong. Check the bot console.';
@@ -155,41 +193,59 @@ async function onLeave(interaction) {
   return interaction.reply({ content: 'Left the voice channel.', flags: MessageFlags.Ephemeral });
 }
 
-async function onLanguage(interaction) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+async function onLanguageChannel(interaction) {
+  const action = interaction.options.getSubcommand();
 
-  const language = interaction.options.getString('language');
-  const validLanguages = ['spanish', 'english', 'norwegian', 'russian'];
-
-  if (!language) {
-    return interaction.editReply({
-      content: 'Please specify a language. Usage: `/language spanish` or `/language english`',
-      flags: MessageFlags.Ephemeral
+  if (action === 'list') {
+    const mapping = languageChannels[interaction.guildId] ?? {};
+    const lines = Object.entries(mapping).map(([code, id]) => {
+      const channel = interaction.guild.channels.cache.get(id);
+      return `• **${code}** → ${channel ? `<#${id}>` : `deleted/missing channel (${id})`}`;
+    });
+    return interaction.reply({
+      content: lines.length ? `**Language channel mappings**\n${lines.join('\n')}` : 'No language channels configured yet. Use `/language-channel set`.',
+      flags: MessageFlags.Ephemeral,
     });
   }
 
-  if (!validLanguages.includes(language)) {
-    return interaction.editReply({
-      content: `Invalid language. Valid options are: ${validLanguages.join(', ')}`,
-      flags: MessageFlags.Ephemeral
+  const language = interaction.options.getString('language', true).trim().toLowerCase();
+  if (!/^[a-z]{2,3}$/.test(language)) {
+    return interaction.reply({
+      content: 'Use a 2- or 3-letter language code, such as `en`, `es`, `no`, or `de`.',
+      flags: MessageFlags.Ephemeral,
     });
   }
 
-  // Map language names to codes for your service
-  const langCodes = {
-    'spanish': 'es',
-    'english': 'en',
-    'norwegian': 'no',
-    'russian': 'ru'
-  };
+  if (action === 'remove') {
+    if (!languageChannels[interaction.guildId]?.[language]) {
+      return interaction.reply({ content: `No channel is set for **${language}**.`, flags: MessageFlags.Ephemeral });
+    }
+    delete languageChannels[interaction.guildId][language];
+    if (Object.keys(languageChannels[interaction.guildId]).length === 0) delete languageChannels[interaction.guildId];
+    saveLanguageChannels();
+    return interaction.reply({ content: `Removed the channel mapping for **${language}**.`, flags: MessageFlags.Ephemeral });
+  }
 
-  const langCode = langCodes[language];
-  userPreferences.set(interaction.user.id, langCode);
-
-  await interaction.editReply({
-    content: `Language preference set to ${language}. I will now only translate utterances in ${language}.`,
-    flags: MessageFlags.Ephemeral
-  });
+  if (action === 'set') {
+    const channel = interaction.options.getChannel('channel', true);
+    if (!channel.isTextBased() || !channel.guild) {
+      return interaction.reply({ content: 'Choose a server text channel.', flags: MessageFlags.Ephemeral });
+    }
+    const perms = channel.permissionsFor(client.user);
+    if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) {
+      return interaction.reply({
+        content: `I need View Channel + Send Messages permissions in <#${channel.id}>.`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    languageChannels[interaction.guildId] ??= {};
+    languageChannels[interaction.guildId][language] = channel.id;
+    saveLanguageChannels();
+    return interaction.reply({
+      content: `Speech and translations in **${language}** will be posted in <#${channel.id}>.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
 }
 
 // ------------------------------------------------------------- listening ---
@@ -267,8 +323,14 @@ async function handleUtterance(session, userId, pcm) {
 
   let result;
   try {
-    // Pass the user ID as a parameter to your service
-    const res = await fetch(`${SERVICE_URL}/process?speaker=${encodeURIComponent(userId)}`, {
+    // Restrict detection to English/Spanish and request both possible translation targets.
+    const params = new URLSearchParams({
+      speaker: userId,
+      candidates: 'en,es',
+      targets: 'en,es',
+      translate: 'true',
+    });
+    const res = await fetch(`${SERVICE_URL}/process?${params}`, {
       method: 'POST',
       headers: { 'Content-Type': 'audio/wav' },
       body: wav,
@@ -283,10 +345,35 @@ async function handleUtterance(session, userId, pcm) {
 
   if (!result.original) return; // nothing intelligible was said
 
-  await session.textChannel.send({
-    content: formatLine(name, result),
-    allowedMentions: { parse: [] }, // never let transcribed speech ping @everyone or roles
-  });
+  const sourceLanguage = result.language;
+  const translations = result.translations ?? {};
+
+  // The source-language room gets the transcript, regardless of translation success.
+  const sourceChannelId = sourceLanguage && getLanguageChannelId(session.guild.id, sourceLanguage);
+  if (sourceChannelId) {
+    const sourceChannel = await session.guild.channels.fetch(sourceChannelId).catch(() => null);
+    if (sourceChannel) {
+      await sendBotMessage(sourceChannel, `**${escapeMarkdown(name)}:** ${escapeMarkdown(result.original)}`);
+    }
+  }
+
+  // Each target-language room gets its translated version.
+  for (const [targetLanguage, translatedText] of Object.entries(translations)) {
+    if (!translatedText) continue;
+    const targetChannelId = getLanguageChannelId(session.guild.id, targetLanguage);
+    if (!targetChannelId) continue;
+    const targetChannel = await session.guild.channels.fetch(targetChannelId).catch(() => null);
+    if (targetChannel) {
+      await sendBotMessage(targetChannel, `**${escapeMarkdown(name)}:** ${escapeMarkdown(translatedText)}`);
+    }
+  }
+
+  // Preserve the combined translation-first/original-below format in the /join channel.
+  const preferredTranslation = translations.en || translations.es || Object.values(translations)[0] || null;
+  await sendBotMessage(session.textChannel, formatLine(name, {
+    original: result.original,
+    translation: preferredTranslation,
+  }));
 }
 
 function formatLine(name, { original, translation }) {
@@ -295,7 +382,7 @@ function formatLine(name, { original, translation }) {
 
   let line = `**${safeName}:** ${escapeMarkdown(translation)}`;
   if (showOriginal) line += `\n-# ${escapeMarkdown(original)}`; // "-#" renders as small subtext
-  return line.slice(0, 1900); // messages are capped at 2000 characters
+  return line.slice(0, 1900);
 }
 
 // -------------------------------------------------------------- shutdown ---
