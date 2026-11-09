@@ -49,6 +49,9 @@ if (recordWav) fs.mkdirSync('recordings', { recursive: true });
 /** @type {Map<string, {connection: import('@discordjs/voice').VoiceConnection, guild: import('discord.js').Guild, textChannel: import('discord.js').TextBasedChannel, active: Set<string>, queue: Promise<void>}>} */
 const sessions = new Map();
 
+// Store user language preferences
+const userPreferences = new Map();
+
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
@@ -64,6 +67,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.commandName === 'join') await onJoin(interaction);
     else if (interaction.commandName === 'leave') await onLeave(interaction);
+    else if (interaction.commandName === 'language') await onLanguage(interaction);
   } catch (err) {
     console.error(err);
     const msg = 'Something went wrong. Check the bot console.';
@@ -71,6 +75,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     else await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
   }
 });
+
+// -------------------------------------------------------------- command functions ---
 
 async function onJoin(interaction) {
   const voiceChannel = interaction.member?.voice?.channel;
@@ -149,6 +155,43 @@ async function onLeave(interaction) {
   return interaction.reply({ content: 'Left the voice channel.', flags: MessageFlags.Ephemeral });
 }
 
+async function onLanguage(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const language = interaction.options.getString('language');
+  const validLanguages = ['spanish', 'english', 'norwegian', 'russian'];
+
+  if (!language) {
+    return interaction.editReply({
+      content: 'Please specify a language. Usage: `/language spanish` or `/language english`',
+      flags: MessageFlags.Ephemeral
+    });
+  }
+
+  if (!validLanguages.includes(language)) {
+    return interaction.editReply({
+      content: `Invalid language. Valid options are: ${validLanguages.join(', ')}`,
+      flags: MessageFlags.Ephemeral
+    });
+  }
+
+  // Map language names to codes for your service
+  const langCodes = {
+    'spanish': 'es',
+    'english': 'en',
+    'norwegian': 'no',
+    'russian': 'ru'
+  };
+
+  const langCode = langCodes[language];
+  userPreferences.set(interaction.user.id, langCode);
+
+  await interaction.editReply({
+    content: `Language preference set to ${language}. I will now only translate utterances in ${language}.`,
+    flags: MessageFlags.Ephemeral
+  });
+}
+
 // ------------------------------------------------------------- listening ---
 function startListening(session) {
   const receiver = session.connection.receiver;
@@ -224,7 +267,8 @@ async function handleUtterance(session, userId, pcm) {
 
   let result;
   try {
-    const res = await fetch(`${SERVICE_URL}/process?speaker=${encodeURIComponent(name)}`, {
+    // Pass the user ID as a parameter to your service
+    const res = await fetch(`${SERVICE_URL}/process?speaker=${encodeURIComponent(userId)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'audio/wav' },
       body: wav,

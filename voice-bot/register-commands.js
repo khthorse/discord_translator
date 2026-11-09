@@ -1,4 +1,4 @@
-// Run once (and again whenever you change the commands): npm run register
+// Run once (and again whenever you change the commands):
 import './env.js';
 import { InteractionContextType, REST, Routes, SlashCommandBuilder } from 'discord.js';
 
@@ -17,6 +17,21 @@ const commands = [
   new SlashCommandBuilder()
     .setName('leave')
     .setDescription('Leave the voice channel')
+    .setContexts(InteractionContextType.Guild),
+  new SlashCommandBuilder()
+    .setName('language')
+    .setDescription('Set your preferred language for translation')
+    .addStringOption(option => 
+      option.setName('language')
+        .setDescription('The language you want translations in')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Spanish', value: 'spanish' },
+          { name: 'English', value: 'english' },
+          { name: 'Norwegian', value: 'norwegian' },
+          { name: 'Russian', value: 'russian' }
+        )
+    )
     .setContexts(InteractionContextType.Guild),
 ].map((c) => c.toJSON());
 

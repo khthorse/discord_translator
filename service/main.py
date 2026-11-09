@@ -7,11 +7,12 @@ import os
 import threading
 import time
 from pathlib import Path
+import json
+from collections import defaultdict
 
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-
 
 def _add_nvidia_dll_dirs() -> None:
     """Windows: if cuBLAS/cuDNN were installed with pip (nvidia-* packages), make their DLLs findable."""
@@ -25,7 +26,6 @@ def _add_nvidia_dll_dirs() -> None:
         for bin_dir in Path(base).glob("*/bin"):
             os.add_dll_directory(str(bin_dir))
             os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
-
 
 _add_nvidia_dll_dirs()
 
@@ -44,7 +44,7 @@ from translators import build_translator  # noqa: E402
 # ---------------------------------------------------------------- config ---
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "large-v3-turbo")
 WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cuda")  # "cuda" or "cpu"
-WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "float16")  # "float16" on GPU, "int8" on CPU
+WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "float16")  # "float16" on GPU, "int8" on CPU"
 LANGUAGES = ("es", "en")  # the pair we translate between
 HOST = os.getenv("SERVICE_HOST", "127.0.0.1")  # keep local: this endpoint has no authentication
 PORT = int(os.getenv("SERVICE_PORT", "8000"))
@@ -58,7 +58,6 @@ print(f"Translator: {type(translator).__name__}")
 gpu_lock = threading.Lock()
 
 app = FastAPI()
-
 
 def wav_to_whisper_audio(wav_bytes: bytes) -> np.ndarray:
     """Turn the bot's WAV (16-bit PCM, 48 kHz stereo) into what Whisper wants:
@@ -81,10 +80,8 @@ def wav_to_whisper_audio(wav_bytes: bytes) -> np.ndarray:
         samples = resample_poly(samples, 16000 // g, rate // g)  # 48 kHz -> 16 kHz (low-pass included)
     return np.ascontiguousarray(samples, dtype=np.float32)
 
-
 # Short Spanish clips are often mislabeled as these close relatives, so treat them as Spanish.
 SPANISH_LOOKALIKES = {"gl", "ca", "pt"}
-
 
 def pick_language(audio) -> str | None:
     """Spanish and English are the main pair. Anything else (Norwegian, Russian...) is kept as
@@ -104,6 +101,19 @@ def pick_language(audio) -> str | None:
         return "es"
     return top
 
+# Store user language preferences
+user_preferences = defaultdict(str)  # Default to empty string (process all languages)
+
+# Function to set user language preference
+def set_user_language(user_id: str, language: str):
+    """Set a user's preferred language for translation"""
+    user_preferences[user_id] = language
+    print(f"User {user_id} language set to {language}")
+
+# Function to get user language preference  
+def get_user_language(user_id: str) -> str:
+    """Get a user's preferred language for translation"""
+    return user_preferences.get(user_id, "")
 
 def process(wav_bytes: bytes, speaker: str) -> dict:
     t0 = time.perf_counter()
@@ -130,6 +140,14 @@ def process(wav_bytes: bytes, speaker: str) -> dict:
 
     translation = None
     if text:
+        # Check if this speaker has a specific language preference
+        user_lang = get_user_language(speaker)
+
+        # If user has a preference and it doesn't match the detected language, ignore
+        if user_lang and user_lang != lang:
+            print(f"Skipping {speaker}'s utterance: detected {lang}, expected {user_lang}")
+            return {"language": lang, "original": text, "translation": None}
+
         # English -> Spanish. Everything else (Spanish, Norwegian, ...) -> English.
         target = "es" if lang == "en" else "en"
         try:
@@ -144,7 +162,6 @@ def process(wav_bytes: bytes, speaker: str) -> dict:
     )
     return {"language": lang, "original": text, "translation": translation}
 
-
 @app.post("/process")
 async def process_endpoint(request: Request, speaker: str = "unknown"):
     body = await request.body()
@@ -153,11 +170,24 @@ async def process_endpoint(request: Request, speaker: str = "unknown"):
     # Whisper blocks, so run it in a worker thread and keep the web server responsive.
     return await run_in_threadpool(process, body, speaker)
 
-
 @app.get("/health")
 def health():
     return {"ok": True, "model": WHISPER_MODEL, "translator": type(translator).__name__}
 
+# Add endpoint to set user language preferences
+@app.post("/user_language")
+async def set_user_language_endpoint(user_id: str, language: str):
+    """Set a user's preferred language for translation"""
+    user_preferences[user_id] = language
+    print(f"User {user_id} language set to {language}")
+    return {"status": "success", "user_id": user_id, "language": language}
+
+# Add endpoint to get user language preferences (optional)
+@app.get("/user_language/{user_id}")
+async def get_user_language_endpoint(user_id: str):
+    """Get a user's preferred language for translation"""
+    language = user_preferences.get(user_id, "")
+    return {"user_id": user_id, "language": language}
 
 if __name__ == "__main__":
     uvicorn.run(app, host=HOST, port=PORT)
