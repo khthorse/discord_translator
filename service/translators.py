@@ -81,18 +81,25 @@ class OpenAICompatTranslator(Translator):
         self.model = os.environ["LLM_MODEL"]
         self.client = httpx.Client(timeout=60)
 
+
     def translate(self, text, source, target):
         start = time.perf_counter()
 
         src = LANGUAGE_NAMES.get(source, source)
         tgt = LANGUAGE_NAMES.get(target, target)
 
-        system = (
-            f"Translate this gaming voice chat from {src} to {tgt}. "
-            "Preserve gaming slang, names, tone and context. "
-            "Be concise and natural. "
-            "Return only the translation."
+        prompt = (
+            f"You are a professional {src} ({source}) to "
+            f"{tgt} ({target}) translator. "
+            f"Your goal is to accurately convey the meaning and "
+            f"nuances of the original {src} text while adhering "
+            f"to {tgt} grammar, vocabulary, and cultural sensitivities. "
+            f"Produce only the {tgt} translation, without any "
+            f"additional explanations or commentary. "
+            f"Please translate the following {src} text into {tgt}:\n\n\n"
+            f"{text}"
         )
+
         request_start = time.perf_counter()
 
         resp = self.client.post(
@@ -100,8 +107,7 @@ class OpenAICompatTranslator(Translator):
             json={
                 "model": self.model,
                 "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": text},
+                    {"role": "user", "content": prompt}
                 ],
                 "stream": False,
                 "keep_alive": "24h",
@@ -113,9 +119,9 @@ class OpenAICompatTranslator(Translator):
         )
 
         request_end = time.perf_counter()
-
         print(
-            f"[HTTP DEBUG] Request: {request_end - request_start:.3f}s"
+            f"[HTTP DEBUG] Request: "
+            f"{request_end - request_start:.3f}s"
         )
 
         response_time = time.perf_counter()
@@ -126,10 +132,9 @@ class OpenAICompatTranslator(Translator):
         parse_end = time.perf_counter()
 
         print(
-            f"[HTTP DEBUG] JSON parsing: {parse_end - parse_start:.3f}s"
+            f"[HTTP DEBUG] JSON parsing: "
+            f"{parse_end - parse_start:.3f}s"
         )
-
-        data = resp.json()
 
         print(
             f"[OLLAMA] Total: {data.get('total_duration', 0) / 1e9:.3f}s | "
@@ -139,6 +144,7 @@ class OpenAICompatTranslator(Translator):
         )
 
         out = data["message"]["content"]
+
         out = re.sub(
             r"<think>.*?</think>", "", out, flags=re.DOTALL
         ).strip()
@@ -152,6 +158,7 @@ class OpenAICompatTranslator(Translator):
         )
 
         return out
+
 
 
 
