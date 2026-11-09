@@ -69,17 +69,16 @@ class GoogleTranslator(Translator):
         return resp.json()["data"]["translations"][0]["translatedText"]
 
 
-class OpenAICompatTranslator(Translator):
-    """Works with anything that speaks the OpenAI chat-completions API.
 
-    Hosted OpenAI:  LLM_BASE_URL=https://api.openai.com/v1   LLM_API_KEY=sk-...
-    Local Ollama:   LLM_BASE_URL=http://localhost:11434/v1   LLM_API_KEY=ollama (any text)
-    """
+
+class OpenAICompatTranslator(Translator):
+    """Uses Ollama's native chat API for faster local translation."""
 
     def __init__(self):
-        self.base_url = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1").rstrip("/")
+        self.base_url = os.getenv(
+            "LLM_BASE_URL", "http://localhost:11434"
+        ).rstrip("/")
         self.model = os.environ["LLM_MODEL"]
-        self.api_key = os.getenv("LLM_API_KEY", "none")
         self.client = httpx.Client(timeout=60)
 
     def translate(self, text, source, target):
@@ -94,39 +93,66 @@ class OpenAICompatTranslator(Translator):
             "Be concise and natural. "
             "Return only the translation."
         )
-
-        prompt_time = time.perf_counter()
+        request_start = time.perf_counter()
 
         resp = self.client.post(
-            f"{self.base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {self.api_key}"},
+            f"{self.base_url}/api/chat",
             json={
                 "model": self.model,
-                "temperature": 0,
-                "max_tokens": 256,
-                "stream": False,
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": text},
                 ],
+                "stream": False,
+                "keep_alive": "24h",
+                "options": {
+                    "temperature": 0,
+                    "num_predict": 256,
+                },
             },
+        )
+
+        request_end = time.perf_counter()
+
+        print(
+            f"[HTTP DEBUG] Request: {request_end - request_start:.3f}s"
         )
 
         response_time = time.perf_counter()
         resp.raise_for_status()
 
-        out = resp.json()["choices"][0]["message"]["content"]
-        out = re.sub(r"<think>.*?</think>", "", out, flags=re.DOTALL).strip()
+        parse_start = time.perf_counter()
+        data = resp.json()
+        parse_end = time.perf_counter()
+
+        print(
+            f"[HTTP DEBUG] JSON parsing: {parse_end - parse_start:.3f}s"
+        )
+
+        data = resp.json()
+
+        print(
+            f"[OLLAMA] Total: {data.get('total_duration', 0) / 1e9:.3f}s | "
+            f"Load: {data.get('load_duration', 0) / 1e9:.3f}s | "
+            f"Prompt: {data.get('prompt_eval_duration', 0) / 1e9:.3f}s | "
+            f"Generation: {data.get('eval_duration', 0) / 1e9:.3f}s"
+        )
+
+        out = data["message"]["content"]
+        out = re.sub(
+            r"<think>.*?</think>", "", out, flags=re.DOTALL
+        ).strip()
 
         end = time.perf_counter()
 
         print(
             f"[TRANSLATION] {source}->{target} | "
-            f"HTTP: {response_time - prompt_time:.3f}s | "
+            f"HTTP: {response_time - start:.3f}s | "
             f"Total: {end - start:.3f}s"
         )
 
         return out
+
 
 
 def build_translator(name: str) -> Translator:
