@@ -1,3 +1,4 @@
+
 import './env.js';
 import fs from 'node:fs';
 import {
@@ -21,12 +22,12 @@ import { pcmToWav } from './wav.js';
 const {
   DISCORD_TOKEN,
   SERVICE_URL = 'http://127.0.0.1:8000',
-  SILENCE_MS = '1000', // how long someone must be quiet before an utterance counts as finished
-  MIN_UTTERANCE_MS = '600', // ignore anything shorter (clicks, breaths, keyboard noise)
-  MAX_UTTERANCE_MS = '20000', // cut very long monologues so subtitles don't lag behind
-  SHOW_ORIGINAL = 'true', // also show the original text below the translation
-  RECORD_WAV = 'false', // TESTING ONLY: save each utterance to ./recordings
-  MESSAGE_DELETE_SECONDS = '300', // delete bot subtitles after this many seconds; 0 disables
+  SILENCE_MS = '1000',
+  MIN_UTTERANCE_MS = '600',
+  MAX_UTTERANCE_MS = '20000',
+  SHOW_ORIGINAL = 'true',
+  RECORD_WAV = 'false',
+  MESSAGE_DELETE_SECONDS = '300',
 } = process.env;
 
 if (!DISCORD_TOKEN) {
@@ -34,49 +35,148 @@ if (!DISCORD_TOKEN) {
   process.exit(1);
 }
 
-const SAMPLE_RATE = 48000; // Discord voice is always 48 kHz
-const CHANNELS = 2; // ...and stereo after decoding
-const BYTES_PER_MS = (SAMPLE_RATE * CHANNELS * 2) / 1000; // 16-bit samples = 2 bytes
+const SAMPLE_RATE = 48000;
+const CHANNELS = 2;
+const BYTES_PER_MS = (SAMPLE_RATE * CHANNELS * 2) / 1000;
 const silenceMs = Number(SILENCE_MS);
 const minMs = Number(MIN_UTTERANCE_MS);
 const maxMs = Number(MAX_UTTERANCE_MS);
 const showOriginal = SHOW_ORIGINAL === 'true';
 const recordWav = RECORD_WAV === 'true';
 const messageDeleteSeconds = Math.max(0, Number(MESSAGE_DELETE_SECONDS) || 0);
+
 const languageChannelsFile = new URL('./language-channels.json', import.meta.url);
+const guildLanguagesFile = new URL('./guild-languages.json', import.meta.url);
 
 if (recordWav) fs.mkdirSync('recordings', { recursive: true });
 
-// ----------------------------------------------------------------- state ---
-// One session per server: the voice connection, where to post subtitles, and a work queue.
-/** @type {Map<string, {connection: import('@discordjs/voice').VoiceConnection, guild: import('discord.js').Guild, textChannel: import('discord.js').TextBasedChannel, active: Set<string>, queue: Promise<void>}>} */
+// -------------------------------------------------------------- state ---
+
+/** @type {Map<string, {connection: import('@discordjs/voice').VoiceConnection, guild: import('discord.js').Guild, active: Set<string>, queue: Promise<void>}>} */
 const sessions = new Map();
 
-// Per-guild language -> text-channel mapping. Stored on disk so it survives restarts.
-function readLanguageChannels() {
+// ---------------------------------------------------------- file storage ---
+
+function readJsonFile(file, description) {
   try {
-    return JSON.parse(fs.readFileSync(languageChannelsFile, 'utf8'));
+    const contents = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+    return JSON.parse(contents);
   } catch (err) {
-    if (err.code !== 'ENOENT') console.error('Could not read language-channels.json:', err);
+    if (err.code !== 'ENOENT') {
+      console.error(`Could not read ${description}:`, err);
+    }
     return {};
   }
 }
-let languageChannels = readLanguageChannels();
+
+// Existing language-channel assignments are kept separate and untouched.
+let languageChannels = readJsonFile(languageChannelsFile, 'language-channels.json');
 
 function saveLanguageChannels() {
-  fs.writeFileSync(languageChannelsFile, JSON.stringify(languageChannels, null, 2) + '\n');
+  fs.writeFileSync(
+    languageChannelsFile,
+    JSON.stringify(languageChannels, null, 2) + '\n',
+  );
 }
+
+// New per-server language settings.
+let guildLanguageSettings = readJsonFile(
+  guildLanguagesFile,
+  'guild-languages.json',
+);
+
+
+function defaultGuildSettings() {
+  return {
+    inputLanguages: ['en', 'es'],
+    targetLanguages: ['en', 'es'],
+    liveLanguages: ['en', 'es'],
+    liveChannelId: null,
+  };
+}
+
+function getGuildSettings(guildId) {
+  if (!guildLanguageSettings[guildId]) {
+    guildLanguageSettings[guildId] = defaultGuildSettings();
+    saveGuildLanguageSettings();
+  }
+
+  const settings = guildLanguageSettings[guildId];
+
+  // Fill in missing properties when loading older configuration files.
+  settings.inputLanguages ??= ['en', 'es'];
+  settings.targetLanguages ??= ['en', 'es'];
+  settings.liveLanguages ??= ['en', 'es'];
+  settings.liveChannelId ??= null;
+
+  // Live languages must always be enabled translation targets.
+  settings.liveLanguages = settings.liveLanguages.filter(
+    language => settings.targetLanguages.includes(language),
+  );
+
+  return settings;
+}
+
+function saveGuildLanguageSettings() {
+  fs.writeFileSync(
+    guildLanguagesFile,
+    JSON.stringify(guildLanguageSettings, null, 2) + '\n',
+  );
+}
+
 
 function getLanguageChannelId(guildId, language) {
   return languageChannels[guildId]?.[language] ?? null;
 }
 
+function languageFlag(language) {
+  const flags = {
+    en: '🇺🇸',
+    es: '🇪🇸',
+    fr: '🇫🇷',
+    de: '🇩🇪',
+    it: '🇮🇹',
+    pt: '🇵🇹',
+    'pt-br': '🇧🇷',
+    nl: '🇳🇱',
+    sv: '🇸🇪',
+    no: '🇳🇴',
+    da: '🇩🇰',
+    fi: '🇫🇮',
+    pl: '🇵🇱',
+    cs: '🇨🇿',
+    el: '🇬🇷',
+    tr: '🇹🇷',
+    ru: '🇷🇺',
+    uk: '🇺🇦',
+    ja: '🇯🇵',
+    ko: '🇰🇷',
+    zh: '🇨🇳',
+    'zh-tw': '🇹🇼',
+    hi: '🇮🇳',
+    th: '🇹🇭',
+    vi: '🇻🇳',
+    id: '🇮🇩',
+    ms: '🇲🇾',
+    he: '🇮🇱',
+    ro: '🇷🇴',
+    hu: '🇭🇺',
+  };
+
+  const code = String(language || '').toLowerCase().replace('_', '-');
+  return flags[code] || flags[code.split('-')[0]] || '🌐';
+}
+
+// ------------------------------------------------------------- messaging ---
+
 async function sendBotMessage(channel, content) {
   if (!channel?.isTextBased?.() || !channel.isSendable?.()) return null;
+
   const message = await channel.send({
     content: content.slice(0, 1900),
     allowedMentions: { parse: [] },
   });
+
   if (messageDeleteSeconds > 0) {
     const timer = setTimeout(() => {
       message.delete().catch((err) => {
@@ -85,10 +185,19 @@ async function sendBotMessage(channel, content) {
         }
       });
     }, messageDeleteSeconds * 1000);
+
     timer.unref?.();
   }
+
   return message;
 }
+
+async function getGuildTextChannel(guild, channelId) {
+  if (!channelId) return null;
+  return guild.channels.fetch(channelId).catch(() => null);
+}
+
+// -------------------------------------------------------------- Discord ---
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
@@ -99,36 +208,61 @@ client.once(Events.ClientReady, (c) => {
 });
 
 // -------------------------------------------------------------- commands ---
+
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand() || !interaction.inGuild()) return;
 
   try {
-    if (interaction.commandName === 'join') await onJoin(interaction);
-    else if (interaction.commandName === 'leave') await onLeave(interaction);
-    else if (interaction.commandName === 'language-channel') await onLanguageChannel(interaction);
+    if (interaction.commandName === 'join') {
+      await onJoin(interaction);
+    } else if (interaction.commandName === 'leave') {
+      await onLeave(interaction);
+    } else if (interaction.commandName === 'language-channel') {
+      await onLanguageChannel(interaction);
+    } else if (interaction.commandName === 'language') {
+      await onLanguage(interaction);
+    } else if (interaction.commandName === 'live-channel') {
+      await onLiveChannel(interaction);
+    }
   } catch (err) {
     console.error(err);
+
     const msg = 'Something went wrong. Check the bot console.';
-    if (interaction.deferred || interaction.replied) await interaction.editReply(msg);
-    else await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply(msg);
+    } else {
+      await interaction.reply({
+        content: msg,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
   }
 });
 
-// -------------------------------------------------------------- command functions ---
+function hasManageServerPermission(interaction) {
+  return interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+}
+
+async function requireManageServer(interaction) {
+  if (hasManageServerPermission(interaction)) return true;
+
+  await interaction.reply({
+    content: 'You need the **Manage Server** permission to change these settings.',
+    flags: MessageFlags.Ephemeral,
+  });
+
+  return false;
+}
+
+// ----------------------------------------------------------- join / leave ---
 
 async function onJoin(interaction) {
   const voiceChannel = interaction.member?.voice?.channel;
+
   if (!voiceChannel) {
     return interaction.reply({
       content: 'Join a voice channel first, then run /join again.',
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-
-  const perms = interaction.channel?.permissionsFor(client.user);
-  if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) {
-    return interaction.reply({
-      content: "I can't send messages in this text channel. Give me View Channel + Send Messages.",
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -142,8 +276,8 @@ async function onJoin(interaction) {
     channelId: voiceChannel.id,
     guildId: voiceChannel.guild.id,
     adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-    selfDeaf: false, // a deafened bot receives no audio
-    selfMute: true, // we never speak (yet)
+    selfDeaf: false,
+    selfMute: true,
   });
 
   try {
@@ -156,13 +290,12 @@ async function onJoin(interaction) {
   const session = {
     connection,
     guild: interaction.guild,
-    textChannel: interaction.channel,
     active: new Set(),
     queue: Promise.resolve(),
   };
+
   sessions.set(interaction.guildId, session);
 
-  // If Discord drops us, give it a few seconds to reconnect on its own; otherwise clean up.
   connection.on(VoiceConnectionStatus.Disconnected, async () => {
     try {
       await Promise.race([
@@ -173,42 +306,71 @@ async function onJoin(interaction) {
       connection.destroy();
     }
   });
+
   connection.on(VoiceConnectionStatus.Destroyed, () => {
-    if (sessions.get(interaction.guildId) === session) sessions.delete(interaction.guildId);
+    if (sessions.get(interaction.guildId) === session) {
+      sessions.delete(interaction.guildId);
+    }
   });
 
   startListening(session);
+
+  const settings = getGuildSettings(interaction.guildId);
+  const liveStatus = settings.liveChannelId
+    ? 'The configured live channel will receive selected translations.'
+    : 'No live translation channel is configured yet.';
+
   await interaction.editReply(
-    `Listening in **${voiceChannel.name}**. Subtitles will appear in this channel.`,
+    `Listening in **${voiceChannel.name}**. Translations will go to configured language channels. ${liveStatus}`,
   );
 }
 
 async function onLeave(interaction) {
   const session = sessions.get(interaction.guildId);
+
   if (!session) {
-    return interaction.reply({ content: "I'm not in a voice channel.", flags: MessageFlags.Ephemeral });
-  }
-  session.connection.destroy();
-  sessions.delete(interaction.guildId);
-  return interaction.reply({ content: 'Left the voice channel.', flags: MessageFlags.Ephemeral });
-}
-
-async function onLanguageChannel(interaction) {
-  const action = interaction.options.getSubcommand();
-
-  if (action === 'list') {
-    const mapping = languageChannels[interaction.guildId] ?? {};
-    const lines = Object.entries(mapping).map(([code, id]) => {
-      const channel = interaction.guild.channels.cache.get(id);
-      return `• **${code}** → ${channel ? `<#${id}>` : `deleted/missing channel (${id})`}`;
-    });
     return interaction.reply({
-      content: lines.length ? `**Language channel mappings**\n${lines.join('\n')}` : 'No language channels configured yet. Use `/language-channel set`.',
+      content: "I'm not in a voice channel.",
       flags: MessageFlags.Ephemeral,
     });
   }
 
-  const language = interaction.options.getString('language', true).trim().toLowerCase();
+  session.connection.destroy();
+  sessions.delete(interaction.guildId);
+
+  return interaction.reply({
+    content: 'Left the voice channel.',
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+// ------------------------------------------------------- language channels ---
+
+async function onLanguageChannel(interaction) {
+  if (!await requireManageServer(interaction)) return;
+
+  const action = interaction.options.getSubcommand();
+
+  if (action === 'list') {
+    const mapping = languageChannels[interaction.guildId] ?? {};
+
+    const lines = Object.entries(mapping).map(([code, id]) => {
+      const channel = interaction.guild.channels.cache.get(id);
+      return `• **${code}** → ${channel ? `<#${id}>` : `deleted/missing channel (${id})`}`;
+    });
+
+    return interaction.reply({
+      content: lines.length
+        ? `**Language channel mappings**\n${lines.join('\n')}`
+        : 'No language channels configured yet. Use `/language-channel set`.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const language = interaction.options.getString('language', true)
+    .trim()
+    .toLowerCase();
+
   if (!/^[a-z]{2,3}$/.test(language)) {
     return interaction.reply({
       content: 'Use a 2- or 3-letter language code, such as `en`, `es`, `no`, or `de`.',
@@ -218,29 +380,53 @@ async function onLanguageChannel(interaction) {
 
   if (action === 'remove') {
     if (!languageChannels[interaction.guildId]?.[language]) {
-      return interaction.reply({ content: `No channel is set for **${language}**.`, flags: MessageFlags.Ephemeral });
+      return interaction.reply({
+        content: `No channel is set for **${language}**.`,
+        flags: MessageFlags.Ephemeral,
+      });
     }
+
     delete languageChannels[interaction.guildId][language];
-    if (Object.keys(languageChannels[interaction.guildId]).length === 0) delete languageChannels[interaction.guildId];
+
+    if (Object.keys(languageChannels[interaction.guildId]).length === 0) {
+      delete languageChannels[interaction.guildId];
+    }
+
     saveLanguageChannels();
-    return interaction.reply({ content: `Removed the channel mapping for **${language}**.`, flags: MessageFlags.Ephemeral });
+
+    return interaction.reply({
+      content: `Removed the channel mapping for **${language}**.`,
+      flags: MessageFlags.Ephemeral,
+    });
   }
 
   if (action === 'set') {
     const channel = interaction.options.getChannel('channel', true);
+
     if (!channel.isTextBased() || !channel.guild) {
-      return interaction.reply({ content: 'Choose a server text channel.', flags: MessageFlags.Ephemeral });
+      return interaction.reply({
+        content: 'Choose a server text channel.',
+        flags: MessageFlags.Ephemeral,
+      });
     }
+
     const perms = channel.permissionsFor(client.user);
-    if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) {
+
+    if (!perms?.has([
+      PermissionFlagsBits.ViewChannel,
+      PermissionFlagsBits.SendMessages,
+    ])) {
       return interaction.reply({
         content: `I need View Channel + Send Messages permissions in <#${channel.id}>.`,
         flags: MessageFlags.Ephemeral,
       });
     }
+
     languageChannels[interaction.guildId] ??= {};
     languageChannels[interaction.guildId][language] = channel.id;
+
     saveLanguageChannels();
+
     return interaction.reply({
       content: `Speech and translations in **${language}** will be posted in <#${channel.id}>.`,
       flags: MessageFlags.Ephemeral,
@@ -248,12 +434,187 @@ async function onLanguageChannel(interaction) {
   }
 }
 
+// -------------------------------------------------------- language settings ---
+
+async function onLanguage(interaction) {
+  if (!await requireManageServer(interaction)) return;
+
+  const group = interaction.options.getSubcommandGroup(true);
+  const action = interaction.options.getSubcommand();
+  const language = action === 'list'
+    ? null
+    : interaction.options.getString('language', true).toLowerCase();
+
+  const settings = getGuildSettings(interaction.guildId);
+
+  const propertyByGroup = {
+    input: 'inputLanguages',
+    target: 'targetLanguages',
+    live: 'liveLanguages',
+  };
+
+  const property = propertyByGroup[group];
+
+  if (!property) {
+    return interaction.reply({
+      content: 'Unknown language setting.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const languages = settings[property];
+
+  if (action === 'list') {
+    const lines = languages.map(code => `• **${code}**`);
+
+    return interaction.reply({
+      content: lines.length
+        ? `**${group === 'input' ? 'Input' : group === 'target' ? 'Target' : 'Live'} languages**\n${lines.join('\n')}`
+        : `No ${group} languages are enabled.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  if (!/^[a-z]{2,3}$/.test(language)) {
+    return interaction.reply({
+      content: 'Invalid language code.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  if (action === 'add') {
+    if (languages.includes(language)) {
+      return interaction.reply({
+        content: `**${language}** is already enabled for ${group} languages.`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    if (group === 'live' && !settings.targetLanguages.includes(language)) {
+      return interaction.reply({
+        content: `Enable **${language}** as a target language first with \`/language target add\`.`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    languages.push(language);
+    saveGuildLanguageSettings();
+
+    return interaction.reply({
+      content: `Added **${language}** to ${group} languages.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  if (action === 'remove') {
+    if (!languages.includes(language)) {
+      return interaction.reply({
+        content: `**${language}** is not enabled for ${group} languages.`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    if (group === 'input' && languages.length === 1) {
+      return interaction.reply({
+        content: 'At least one input language must remain enabled.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    settings[property] = languages.filter(code => code !== language);
+
+    // A language cannot remain in the live feed after it stops being a target.
+    if (group === 'target') {
+      settings.liveLanguages = settings.liveLanguages.filter(
+        code => code !== language,
+      );
+    }
+
+    saveGuildLanguageSettings();
+
+    return interaction.reply({
+      content: `Removed **${language}** from ${group} languages.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+}
+
+// ------------------------------------------------------------ live channel ---
+
+async function onLiveChannel(interaction) {
+  if (!await requireManageServer(interaction)) return;
+
+  const action = interaction.options.getSubcommand();
+  const settings = getGuildSettings(interaction.guildId);
+
+  if (action === 'show') {
+    if (!settings.liveChannelId) {
+      return interaction.reply({
+        content: 'No live translation channel is configured. Use `/live-channel set`.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    const channel = await getGuildTextChannel(
+      interaction.guild,
+      settings.liveChannelId,
+    );
+
+    return interaction.reply({
+      content: channel
+        ? `Live translations are sent to <#${channel.id}>.`
+        : `The configured channel (${settings.liveChannelId}) no longer exists. Set a new one with \`/live-channel set\`.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  if (action === 'remove') {
+    settings.liveChannelId = null;
+    saveGuildLanguageSettings();
+
+    return interaction.reply({
+      content: 'Removed the live translation channel.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  if (action === 'set') {
+    const channel = interaction.options.getChannel('channel', true);
+
+    if (!channel.isTextBased() || !channel.guild) {
+      return interaction.reply({
+        content: 'Choose a server text channel.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    const perms = channel.permissionsFor(client.user);
+
+    if (!perms?.has([
+      PermissionFlagsBits.ViewChannel,
+      PermissionFlagsBits.SendMessages,
+    ])) {
+      return interaction.reply({
+        content: `I need View Channel + Send Messages permissions in <#${channel.id}>.`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    settings.liveChannelId = channel.id;
+    saveGuildLanguageSettings();
+
+    return interaction.reply({
+      content: `Live translations will be sent to <#${channel.id}>.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+}
+
 // ------------------------------------------------------------- listening ---
+
 function startListening(session) {
   const receiver = session.connection.receiver;
 
-  // 'start' fires every time a user begins making sound. A pause of a fraction of a second
-  // followed by more speech fires it again, which is why we track who is already being captured.
   receiver.speaking.on('start', (userId) => {
     if (session.active.has(userId)) return;
     session.active.add(userId);
@@ -261,7 +622,7 @@ function startListening(session) {
     captureUtterance(receiver, userId)
       .then((pcm) => {
         session.active.delete(userId);
-        // Chain onto a queue so subtitles are posted in the order people finished speaking.
+
         session.queue = session.queue
           .then(() => handleUtterance(session, userId, pcm))
           .catch((err) => console.error('Utterance failed:', err));
@@ -273,29 +634,37 @@ function startListening(session) {
   });
 }
 
-// Collects one utterance from one user and resolves with raw 48 kHz stereo PCM.
 function captureUtterance(receiver, userId) {
   return new Promise((resolve, reject) => {
-    // Per-user stream of Opus packets, ended automatically after `silenceMs` of silence.
     const opusStream = receiver.subscribe(userId, {
-      end: { behavior: EndBehaviorType.AfterSilence, duration: silenceMs },
+      end: {
+        behavior: EndBehaviorType.AfterSilence,
+        duration: silenceMs,
+      },
     });
-    // Opus -> raw PCM (16-bit, little-endian, 48 kHz, stereo). 960 samples = one 20 ms frame.
-    const decoder = new prism.opus.Decoder({ rate: SAMPLE_RATE, channels: CHANNELS, frameSize: 960 });
+
+    const decoder = new prism.opus.Decoder({
+      rate: SAMPLE_RATE,
+      channels: CHANNELS,
+      frameSize: 960,
+    });
 
     const chunks = [];
-    const cap = setTimeout(() => opusStream.push(null), maxMs); // force-end very long utterances
+    const cap = setTimeout(() => opusStream.push(null), maxMs);
 
     const finish = () => {
       clearTimeout(cap);
       resolve(Buffer.concat(chunks));
     };
-    decoder.on('data', (chunk) => chunks.push(chunk));
+
+    decoder.on('data', chunk => chunks.push(chunk));
     decoder.on('end', finish);
+
     decoder.on('error', (err) => {
       clearTimeout(cap);
       reject(err);
     });
+
     opusStream.on('error', (err) => {
       clearTimeout(cap);
       reject(err);
@@ -306,6 +675,7 @@ function captureUtterance(receiver, userId) {
 }
 
 // ------------------------------------------------------------- the work ----
+
 async function handleUtterance(session, userId, pcm) {
   const durationMs = pcm.length / BYTES_PER_MS;
   if (durationMs < minMs) return;
@@ -314,80 +684,135 @@ async function handleUtterance(session, userId, pcm) {
   const name = member?.displayName ?? 'Unknown';
   const wav = pcmToWav(pcm, SAMPLE_RATE, CHANNELS);
 
-  // Testing aid: keep a copy so you can listen to exactly what the bot heard.
   if (recordWav) {
     const file = `recordings/${Date.now()}-${userId}.wav`;
     fs.writeFileSync(file, wav);
     console.log(`Saved ${file} (${(durationMs / 1000).toFixed(1)} s)`);
   }
 
+  // Read this server's settings for every utterance.
+  const settings = getGuildSettings(session.guild.id);
+
   let result;
+
   try {
-    // Restrict detection to English/Spanish and request both possible translation targets.
     const params = new URLSearchParams({
       speaker: userId,
-      candidates: 'en,es',
-      targets: 'en,es',
-      translate: 'true',
+      candidates: settings.inputLanguages.join(','),
+      targets: settings.targetLanguages.join(','),
+      translate: settings.targetLanguages.length > 0 ? 'true' : 'false',
     });
+
     const res = await fetch(`${SERVICE_URL}/process?${params}`, {
       method: 'POST',
       headers: { 'Content-Type': 'audio/wav' },
       body: wav,
       signal: AbortSignal.timeout(60_000),
     });
-    if (!res.ok) throw new Error(`service answered HTTP ${res.status}`);
+
+    if (!res.ok) {
+      throw new Error(`service answered HTTP ${res.status}`);
+    }
+
     result = await res.json();
   } catch (err) {
     console.error('Could not reach the Python service:', err.message);
     return;
   }
 
-  if (!result.original) return; // nothing intelligible was said
+  if (!result.original) return;
 
   const sourceLanguage = result.language;
   const translations = result.translations ?? {};
 
-  // The source-language room gets the transcript, regardless of translation success.
-  const sourceChannelId = sourceLanguage && getLanguageChannelId(session.guild.id, sourceLanguage);
+  // Original transcript goes to its source-language channel,
+  // even when that language is not a translation target.
+  const sourceChannelId = sourceLanguage
+    && getLanguageChannelId(session.guild.id, sourceLanguage);
+
   if (sourceChannelId) {
-    const sourceChannel = await session.guild.channels.fetch(sourceChannelId).catch(() => null);
+    const sourceChannel = await getGuildTextChannel(
+      session.guild,
+      sourceChannelId,
+    );
+
     if (sourceChannel) {
-      await sendBotMessage(sourceChannel, `**${escapeMarkdown(name)}:** ${escapeMarkdown(result.original)}`);
+      await sendBotMessage(
+        sourceChannel,
+        `**${languageFlag(sourceLanguage)} ${escapeMarkdown(name)}:** ${escapeMarkdown(result.original)}`,
+      );
     }
   }
 
-  // Each target-language room gets its translated version.
+  // Send each enabled translation to its own language channel.
   for (const [targetLanguage, translatedText] of Object.entries(translations)) {
     if (!translatedText) continue;
-    const targetChannelId = getLanguageChannelId(session.guild.id, targetLanguage);
+    if (!settings.targetLanguages.includes(targetLanguage)) continue;
+
+    const targetChannelId = getLanguageChannelId(
+      session.guild.id,
+      targetLanguage,
+    );
+
     if (!targetChannelId) continue;
-    const targetChannel = await session.guild.channels.fetch(targetChannelId).catch(() => null);
+
+    const targetChannel = await getGuildTextChannel(
+      session.guild,
+      targetChannelId,
+    );
+
     if (targetChannel) {
-      await sendBotMessage(targetChannel, `**${escapeMarkdown(name)}:** ${escapeMarkdown(translatedText)}`);
+      await sendBotMessage(
+        targetChannel,
+        `**${languageFlag(targetLanguage)} ${escapeMarkdown(name)}:** ${escapeMarkdown(translatedText)}`,
+      );
     }
   }
 
-  // Preserve the combined translation-first/original-below format in the /join channel.
-  const preferredTranslation = translations.en || translations.es || Object.values(translations)[0] || null;
-  await sendBotMessage(session.textChannel, formatLine(name, {
-    original: result.original,
-    translation: preferredTranslation,
-  }));
-}
+ 
+  // The live channel always receives the original transcript,
+  // followed by only the translations selected by the server admin.
+  if (settings.liveChannelId) {
+    const liveChannel = await getGuildTextChannel(
+      session.guild,
+      settings.liveChannelId,
+    );
 
-function formatLine(name, { original, translation }) {
-  const safeName = escapeMarkdown(name);
-  if (!translation) return `**${safeName}:** ${escapeMarkdown(original)}`.slice(0, 1900);
+    if (liveChannel) {
+      const liveLines = settings.liveLanguages
+        .filter(language => settings.targetLanguages.includes(language))
+        .map(language => {
+          const translatedText = translations[language];
+          if (!translatedText) return null;
 
-  let line = `**${safeName}:** ${escapeMarkdown(translation)}`;
-  if (showOriginal) line += `\n-# ${escapeMarkdown(original)}`; // "-#" renders as small subtext
-  return line.slice(0, 1900);
+          return `**${languageFlag(language)} ${language.toUpperCase()}:** ${escapeMarkdown(translatedText)}`;
+        })
+        .filter(Boolean);
+
+      const originalLanguage = sourceLanguage
+        ? `${languageFlag(sourceLanguage)} ${sourceLanguage.toUpperCase()}`
+        : '🌐 Original';
+
+      const liveMessage = [
+        `**${escapeMarkdown(name)}**`,
+        '',
+        `**Original (${originalLanguage}):**`,
+        escapeMarkdown(result.original),
+        ...liveLines.length > 0 ? ['', ...liveLines] : [],
+      ].join('\n');
+
+      await sendBotMessage(liveChannel, liveMessage);
+    }
+  }
 }
 
 // -------------------------------------------------------------- shutdown ---
+
 process.on('SIGINT', () => {
-  for (const s of sessions.values()) s.connection.destroy();
+  for (const session of sessions.values()) {
+    session.connection.destroy();
+  }
+
   client.destroy();
   process.exit(0);
 });

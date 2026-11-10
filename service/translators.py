@@ -110,7 +110,7 @@ class OpenAICompatTranslator(Translator):
                     {"role": "user", "content": prompt}
                 ],
                 "stream": False,
-                "keep_alive": "24h",
+                "keep_alive": "2h",
                 "options": {
                     "temperature": 0,
                     "num_predict": 256,
