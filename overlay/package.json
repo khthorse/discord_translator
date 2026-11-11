@@ -1,0 +1,13 @@
+{
+  "name": "wookie-overlay",
+  "version": "1.1.0",
+  "description": "Wookie Translator gaming overlay",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^41.0.0"
+  }
+}

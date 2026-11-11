@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; style-src 'self'; script-src 'self';"
+  >
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Wookie Translator</title>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <main id="overlay" class="overlay hud-mode">
+
+    <header class="topbar drag-region">
+
+      <div class="brand">
+        <div class="brand-icon">W</div>
+
+        <div class="brand-text">
+          <span class="brand-name">WOOKIE</span>
+          <span class="brand-subtitle">LIVE TRANSLATOR</span>
+        </div>
+      </div>
+
+      <div class="toolbar no-drag">
+        <button id="modeButton" title="Switch display mode">
+          SUBTITLES
+        </button>
+
+        <button id="settingsButton" title="Settings">⚙</button>
+        <button id="clearButton" title="Clear messages">⌫</button>
+        <button id="minimizeButton" title="Minimize">−</button>
+        <button id="closeButton" title="Close">×</button>
+      </div>
+
+    </header>
+
+    <div id="connectionRow" class="connection-row">
+      <span id="statusDot" class="status-dot"></span>
+      <span id="statusText">Starting Discord connection...</span>
+    </div>
+
+    <section id="hudContent" class="hud-content">
+
+      <div class="messages-heading">
+        <span>LIVE TRANSLATIONS</span>
+        <span id="messageCounter">0 MESSAGES</span>
+      </div>
+
+      <div id="messages" class="messages">
+
+        <div class="empty-state">
+          <div class="empty-icon">◈</div>
+
+          <strong>Waiting for translations</strong>
+
+          <span>
+            Messages from selected Discord channels will appear here.
+          </span>
+        </div>
+
+      </div>
+
+    </section>
+
+    <section id="subtitleContent" class="subtitle-content hidden">
+      <div id="subtitles" class="subtitles"></div>
+    </section>
+
+    <!-- Integrated settings view -->
+
+    <section id="settingsPanel" class="settings-panel hidden">
+
+      <header class="settings-heading">
+        <div>
+          <strong>WOOKIE SETTINGS</strong>
+          <div class="settings-heading-subtitle">
+            Configure your translation overlay
+          </div>
+        </div>
+
+        <button id="closeSettingsButton" title="Back to overlay">
+          ×
+        </button>
+      </header>
+
+      <div class="setting-group">
+
+        <label>DISPLAY MODE</label>
+
+        <div class="setting-buttons">
+          <button id="hudModeButton">HUD</button>
+          <button id="subtitleModeButton">SUBTITLES</button>
+        </div>
+
+      </div>
+
+      <div class="setting-group">
+
+        <label>TRANSLATION LANGUAGES</label>
+
+        <label class="check-label">
+          <input type="checkbox" id="languageEn" checked>
+          🇺🇸 English
+        </label>
+
+        <label class="check-label">
+          <input type="checkbox" id="languageEs" checked>
+          🇪🇸 Spanish
+        </label>
+
+      </div>
+
+      <div class="settings-section-title">GAMING HUD</div>
+
+      <div class="setting-group">
+
+        <label for="hudBackgroundSlider">
+          HUD BACKGROUND OPACITY
+          <span id="hudBackgroundValue">84%</span>
+        </label>
+
+        <input
+          type="range"
+          id="hudBackgroundSlider"
+          min="0"
+          max="100"
+          value="84"
+        >
+
+      </div>
+
+      <div class="setting-group">
+
+        <label for="hudFontSlider">
+          HUD FONT SIZE
+          <span id="hudFontValue">13px</span>
+        </label>
+
+        <input
+          type="range"
+          id="hudFontSlider"
+          min="10"
+          max="26"
+          value="13"
+        >
+
+      </div>
+
+      <div class="setting-group">
+
+        <label class="check-label">
+          <input type="checkbox" id="autoScroll" checked>
+          Auto-scroll in HUD mode
+        </label>
+
+      </div>
+
+      <div class="settings-section-title">SUBTITLE MODE</div>
+
+      <div class="setting-group">
+
+        <label class="check-label">
+          <input type="checkbox" id="subtitleTransparent" checked>
+          Hide window background until hovered
+        </label>
+
+      </div>
+
+      <div class="setting-group">
+
+        <label for="subtitleWindowSlider">
+          HOVER WINDOW BACKGROUND OPACITY
+          <span id="subtitleWindowValue">78%</span>
+        </label>
+
+        <input
+          type="range"
+          id="subtitleWindowSlider"
+          min="0"
+          max="100"
+          value="78"
+        >
+
+      </div>
+
+      <div class="setting-group">
+
+        <label for="bubbleOpacitySlider">
+          SUBTITLE BUBBLE OPACITY
+          <span id="bubbleOpacityValue">78%</span>
+        </label>
+
+        <input
+          type="range"
+          id="bubbleOpacitySlider"
+          min="0"
+          max="100"
+          value="78"
+        >
+
+      </div>
+
+      <div class="setting-group">
+
+        <label for="subtitleFontSlider">
+          SUBTITLE FONT SIZE
+          <span id="subtitleFontValue">15px</span>
+        </label>
+
+        <input
+          type="range"
+          id="subtitleFontSlider"
+          min="10"
+          max="30"
+          value="15"
+        >
+
+      </div>
+
+      <div class="setting-group">
+
+        <label for="durationSlider">
+          SUBTITLE DISPLAY TIME
+          <span id="durationValue">12s</span>
+        </label>
+
+        <input
+          type="range"
+          id="durationSlider"
+          min="2"
+          max="60"
+          value="12"
+        >
+
+      </div>
+
+      <div class="setting-group">
+
+        <label class="check-label">
+          <input type="checkbox" id="subtitleFade" checked>
+          Gradually fade older subtitles
+        </label>
+
+      </div>
+
+      <div class="setting-group">
+
+        <label for="mergePauseSlider">
+          MESSAGE ACCUMULATION PAUSE
+          <span id="mergePauseValue">5s</span>
+        </label>
+
+        <input
+          type="range"
+          id="mergePauseSlider"
+          min="0"
+          max="10"
+          step="0.5"
+          value="5"
+        >
+
+        <p class="settings-description">
+          How long to wait between messages from the same speaker
+          before starting a new subtitle bubble.
+        </p>
+
+      </div>
+
+      <div class="setting-group">
+
+        <label for="subtitleWidthSlider">
+          SUBTITLE WINDOW WIDTH
+          <span id="subtitleWidthValue">680px</span>
+        </label>
+
+        <input
+          type="range"
+          id="subtitleWidthSlider"
+          min="320"
+          max="900"
+          step="10"
+          value="680"
+        >
+
+      </div>
+
+      <div class="settings-section-title">GENERAL</div>
+
+      <div class="setting-group">
+
+        <label for="historySlider">
+          MESSAGE HISTORY LIMIT
+          <span id="historyValue">30</span>
+        </label>
+
+        <input
+          type="range"
+          id="historySlider"
+          min="5"
+          max="100"
+          value="30"
+        >
+
+      </div>
+
+      <div class="setting-group">
+
+        <label class="check-label">
+          <input type="checkbox" id="positionLock">
+          Lock window position
+        </label>
+
+      </div>
+
+      <div class="settings-section-title">WINDOWS</div>
+
+      <div class="setting-group">
+
+        <p class="settings-description">
+          HUD and subtitle window sizes are saved separately.
+          Resetting restores their default dimensions.
+        </p>
+
+        <button id="resetWindowSizesButton" class="reset-button">
+          RESTORE DEFAULT WINDOW SIZES
+        </button>
+
+      </div>
+
+      <footer class="settings-footer">
+        Settings are saved automatically.
+      </footer>
+
+    </section>
+
+    <footer id="overlayFooter" class="footer">
+      <span>WOOKIE TRANSLATOR</span>
+      <span id="footerMode">GAMING HUD</span>
+    </footer>
+
+  </main>
+
+  <script src="renderer.js"></script>
+
+</body>
+</html>
