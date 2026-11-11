@@ -1070,8 +1070,7 @@ async function handleUtterance(session, userId, pcm) {
         : '🌐 Original';
 
       const liveMessage = [
-        `**${escapeMarkdown(name)}**`,
-        `**${originalLabel}**\n${escapeMarkdown(result.original)}`,
+        `**${escapeMarkdown(name)}**\n**${originalLabel}**\n${escapeMarkdown(result.original)}`,
         ...liveBlocks,
       ].join('\n\n');
 
