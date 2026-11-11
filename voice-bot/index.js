@@ -22,6 +22,7 @@ import { pcmToWav } from './wav.js';
 const {
   DISCORD_TOKEN,
   SERVICE_URL = 'http://127.0.0.1:8000',
+  MAX_CONCURRENT_UTTERANCES = '3',
   SILENCE_MS = '1000',
   MIN_UTTERANCE_MS = '600',
   MAX_UTTERANCE_MS = '20000',
@@ -44,6 +45,7 @@ const maxMs = Number(MAX_UTTERANCE_MS);
 const showOriginal = SHOW_ORIGINAL === 'true';
 const recordWav = RECORD_WAV === 'true';
 const messageDeleteSeconds = Math.max(0, Number(MESSAGE_DELETE_SECONDS) || 0);
+const maxConcurrentUtterances = Math.max(1, Number(MAX_CONCURRENT_UTTERANCES) || 3);
 
 const languageChannelsFile = new URL('./language-channels.json', import.meta.url);
 const guildLanguagesFile = new URL('./guild-languages.json', import.meta.url);
@@ -291,7 +293,11 @@ async function onJoin(interaction) {
     connection,
     guild: interaction.guild,
     active: new Set(),
-    queue: Promise.resolve(),
+    speakerQueues: new Map(),
+    workQueue: [],
+    runningJobs: 0,
+    pendingJobs: 0,
+    maxConcurrentJobs: maxConcurrentUtterances,
   };
 
   sessions.set(interaction.guildId, session);
@@ -622,16 +628,75 @@ function startListening(session) {
     captureUtterance(receiver, userId)
       .then((pcm) => {
         session.active.delete(userId);
-
-        session.queue = session.queue
-          .then(() => handleUtterance(session, userId, pcm))
-          .catch((err) => console.error('Utterance failed:', err));
+        enqueueUtterance(session, userId, pcm);
       })
       .catch((err) => {
         session.active.delete(userId);
         console.error(`Capture failed for ${userId}:`, err.message);
       });
   });
+}
+
+function enqueueUtterance(session, userId, pcm) {
+  const previous = session.speakerQueues.get(userId) ?? Promise.resolve();
+
+  // Preserve each speaker's utterance order while allowing different speakers
+  // to be processed concurrently.
+  const task = previous
+    .catch(() => {})
+    .then(() => runWithSessionLimit(session, () => handleUtterance(session, userId, pcm)));
+
+  session.speakerQueues.set(userId, task);
+
+  task.catch((err) => {
+    console.error(`Utterance failed for ${userId}:`, err);
+  }).finally(() => {
+    if (session.speakerQueues.get(userId) === task) {
+      session.speakerQueues.delete(userId);
+    }
+  });
+}
+
+function runWithSessionLimit(session, job) {
+  return new Promise((resolve, reject) => {
+    const queuedAt = Date.now();
+
+    session.pendingJobs++;
+    session.workQueue.push({ job, resolve, reject, queuedAt });
+
+    if (session.pendingJobs === 1 || session.pendingJobs % 5 === 0) {
+      console.log(
+        `[QUEUE] ${session.pendingJobs} utterance(s) pending; ` +
+        `${session.runningJobs}/${session.maxConcurrentJobs} active.`,
+      );
+    }
+
+    drainSessionQueue(session);
+  });
+}
+
+function drainSessionQueue(session) {
+  while (
+    session.runningJobs < session.maxConcurrentJobs &&
+    session.workQueue.length > 0
+  ) {
+    const item = session.workQueue.shift();
+    const queueWaitMs = Date.now() - item.queuedAt;
+    session.runningJobs++;
+
+    if (queueWaitMs >= 250) {
+      console.log(`[QUEUE] Waited ${queueWaitMs}ms before processing an utterance.`);
+    }
+
+    Promise.resolve()
+      .then(item.job)
+      .then(item.resolve, item.reject)
+      .finally(() => {
+        session.runningJobs--;
+        session.pendingJobs--;
+        drainSessionQueue(session);
+      });
+  }
 }
 
 function captureUtterance(receiver, userId) {
