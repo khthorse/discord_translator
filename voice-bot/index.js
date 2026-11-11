@@ -179,6 +179,31 @@ function languageFlag(language) {
 
 // ------------------------------------------------------------- messaging ---
 
+function formatLiveColumn(labelText, labelMarkdown, value) {
+  const columnWidth = 18;
+  const continuationIndent = '\u2007'.repeat(columnWidth + 1);
+  const firstLineWidth = 88 - columnWidth - 1;
+  const words = escapeMarkdown(String(value ?? '')).trim().split(/\\s+/).filter(Boolean);
+  const wrappedLines = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    const candidate = currentLine ? `${currentLine} ${word}` : word;
+    if (currentLine && candidate.length > firstLineWidth) {
+      wrappedLines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = candidate;
+    }
+  }
+
+  if (currentLine) wrappedLines.push(currentLine);
+
+  const labelPadding = '\u2007'.repeat(Math.max(1, columnWidth - [...labelText].length));
+  const firstLine = `${labelMarkdown}${labelPadding} ${wrappedLines[0] ?? ''}`;
+  return [firstLine, ...wrappedLines.slice(1).map(line => `${continuationIndent}${line}`)].join('\\n');
+}
+
 async function sendBotMessage(channel, content) {
   if (!channel?.isTextBased?.() || !channel.isSendable?.()) return null;
 
@@ -1048,6 +1073,38 @@ async function handleUtterance(session, userId, pcm) {
   // The live channel always receives the original transcript,
   // followed by only the translations selected by the server admin.
   if (settings.liveChannelId) {
+    const liveChannel = await getGuildTextChannel(
+      session.guild,
+      settings.liveChannelId,
+    );
+
+    if (liveChannel) {
+      const liveLines = settings.liveLanguages
+        .filter(language => settings.targetLanguages.includes(language))
+        .map(language => {
+          const translatedText = translations[language];
+          if (!translatedText) return null;
+
+          const labelText = `${languageFlag(language)} ${language.toUpperCase()}:`;
+          return formatLiveColumn(labelText, `**${labelText}**`, translatedText);
+        })
+        .filter(Boolean);
+
+      const originalLabelText = sourceLanguage
+        ? `${languageFlag(sourceLanguage)} ${sourceLanguage.toUpperCase()} Original:`
+        : '🌐 Original:';
+
+      const originalLabelMarkdown = sourceLanguage
+        ? `${languageFlag(sourceLanguage)} ${sourceLanguage.toUpperCase()} **Original:**`
+        : '🌐 **Original:**';
+
+      const liveMessage = [
+        `**${escapeMarkdown(name)}**`,
+        formatLiveColumn(originalLabelText, originalLabelMarkdown, result.original),
+        ...liveLines,
+      ].join('\\n') + '\\n\\n\\u200B';
+
+      await sendBotMessage(liveChannel, liveMessage);ttings.liveChannelId) {
     const liveChannel = await getGuildTextChannel(
       session.guild,
       settings.liveChannelId,
