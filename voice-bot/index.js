@@ -1102,40 +1102,12 @@ async function handleUtterance(session, userId, pcm) {
         `**${escapeMarkdown(name)}**`,
         formatLiveColumn(originalLabelText, originalLabelMarkdown, result.original),
         ...liveLines,
-      ].join('\\n') + '\\n\\n\\u200B';
-
-      await sendBotMessage(liveChannel, liveMessage);ttings.liveChannelId) {
-    const liveChannel = await getGuildTextChannel(
-      session.guild,
-      settings.liveChannelId,
-    );
-
-    if (liveChannel) {
-      const liveLines = settings.liveLanguages
-        .filter(language => settings.targetLanguages.includes(language))
-        .map(language => {
-          const translatedText = translations[language];
-          if (!translatedText) return null;
-
-          return `**${languageFlag(language)} ${language.toUpperCase()}:** ${escapeMarkdown(translatedText)}`;
-        })
-        .filter(Boolean);
-
-      const originalLanguage = sourceLanguage
-        ? `${languageFlag(sourceLanguage)} ${sourceLanguage.toUpperCase()}`
-        : '🌐 Original';
-
-      const liveMessage = [
-        `**${escapeMarkdown(name)}**`,
-        `${originalLanguage} **Original:** ${escapeMarkdown(result.original)}`,
-        ...liveLines,
-      ].join('\n');
+      ].join('\n') + '\n\n\u200B';
 
       await sendBotMessage(liveChannel, liveMessage);
     }
   }
-}
-
+  
 // -------------------------------------------------------------- shutdown ---
 
 process.on('SIGINT', () => {
