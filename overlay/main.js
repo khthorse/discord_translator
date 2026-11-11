@@ -40,6 +40,7 @@ const DEFAULT_MODE_BOUNDS = {
 };
 
 let mainWindow = null;
+let settingsWindow = null;
 
 let socket = null;
 let buffer = Buffer.alloc(0);
@@ -59,7 +60,6 @@ let modeBounds = {
 };
 
 let settingsOpen = false;
-let previousSettingsBounds = null;
 
 let resizeFeedbackTimer = null;
 let savePositionTimer = null;
@@ -111,13 +111,6 @@ function isPositionVisible(saved, fallbackWidth = 440, fallbackHeight = 520) {
 }
 
 function getSavedBoundsForState() {
-  if (
-    settingsOpen &&
-    previousSettingsBounds
-  ) {
-    return previousSettingsBounds;
-  }
-
   if (mainWindow && !mainWindow.isDestroyed()) {
     return mainWindow.getBounds();
   }
@@ -524,31 +517,27 @@ function setMode(mode) {
     : 'hud';
 
   if (nextMode !== currentMode) {
-    if (!settingsOpen) {
-      const bounds = mainWindow.getBounds();
+    const bounds = mainWindow.getBounds();
 
-      modeBounds[currentMode] = {
-        width: bounds.width,
-        height: bounds.height
-      };
-    }
+    modeBounds[currentMode] = {
+      width: bounds.width,
+      height: bounds.height
+    };
 
     currentMode = nextMode;
 
-    if (!settingsOpen) {
-      const target = modeBounds[currentMode];
+    const target = modeBounds[currentMode];
 
-      mainWindow.setMinimumSize(
-        currentMode === 'subtitle' ? 320 : 300,
-        currentMode === 'subtitle' ? 70 : 150
-      );
+    mainWindow.setMinimumSize(
+      currentMode === 'subtitle' ? 320 : 300,
+      currentMode === 'subtitle' ? 70 : 150
+    );
 
-      mainWindow.setSize(
-        target.width,
-        target.height,
-        true
-      );
-    }
+    mainWindow.setSize(
+      target.width,
+      target.height,
+      true
+    );
   }
 
   mainWindow.webContents.send(
@@ -574,82 +563,110 @@ function toggleVisibility() {
   }
 }
 
-/* Integrated settings window sizing */
+/* Separate floating settings window */
 
-function getSettingsWindowSize(bounds) {
-  const display = screen.getDisplayMatching(bounds);
-  const workArea = display.workArea;
+function positionSettingsWindow() {
+  if (
+    !mainWindow || mainWindow.isDestroyed() ||
+    !settingsWindow || settingsWindow.isDestroyed()
+  ) return;
 
-  const maxHeight = Math.max(
-    400,
-    workArea.y + workArea.height - bounds.y - 10
+  const main = mainWindow.getBounds();
+  const display = screen.getDisplayMatching(main);
+  const area = display.workArea;
+  const settingsWidth = 390;
+  const settingsHeight = Math.min(720, area.height);
+
+  let x = main.x + main.width + 10;
+  if (x + settingsWidth > area.x + area.width) {
+    x = main.x - settingsWidth - 10;
+  }
+  x = Math.max(area.x, Math.min(x, area.x + area.width - settingsWidth));
+
+  let y = Math.max(
+    area.y,
+    Math.min(main.y, area.y + area.height - settingsHeight)
   );
 
-  return {
-    width: Math.min(
-      Math.max(bounds.width, 440),
-      workArea.width
-    ),
-    height: Math.min(640, maxHeight)
-  };
+  settingsWindow.setBounds({
+    x: Math.round(x),
+    y: Math.round(y),
+    width: settingsWidth,
+    height: settingsHeight
+  });
 }
 
 function openSettingsView() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (settingsOpen) return;
 
-  previousSettingsBounds = mainWindow.getBounds();
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.show();
+    settingsWindow.focus();
+    positionSettingsWindow();
+    return;
+  }
+
   settingsOpen = true;
 
-  const size = getSettingsWindowSize(previousSettingsBounds);
+  settingsWindow = new BrowserWindow({
+    width: 390,
+    height: 680,
+    parent: mainWindow,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    resizable: true,
+    maximizable: false,
+    minimizable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
 
-  mainWindow.setMinimumSize(300, 150);
-  mainWindow.setSize(
-    size.width,
-    size.height,
-    true
-  );
+  settingsWindow.setAlwaysOnTop(true, 'floating');
+  settingsWindow.setVisibleOnAllWorkspaces(true);
 
-  mainWindow.webContents.send(
-    'overlay:settings-visibility',
-    true
-  );
+  settingsWindow.once('ready-to-show', () => {
+    if (!settingsWindow || settingsWindow.isDestroyed()) return;
+    positionSettingsWindow();
+    settingsWindow.show();
+    settingsWindow.focus();
+  });
+
+  settingsWindow.on('closed', () => {
+    settingsWindow = null;
+    settingsOpen = false;
+
+    if (mainWindow && !mainWindow.isDestroyed() && !app.isQuitting) {
+      mainWindow.focus();
+    }
+  });
+
+  settingsWindow.loadFile(
+    path.join(__dirname, 'renderer', 'index.html'),
+    { query: { settings: '1' } }
+  ).catch(error => {
+    console.error('[SETTINGS] Failed to load settings window:', error);
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.close();
+    }
+  });
 }
 
 function closeSettingsView() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (!settingsOpen) return;
+  if (!settingsWindow || settingsWindow.isDestroyed()) {
+    settingsOpen = false;
+    return;
+  }
 
-  settingsOpen = false;
-
-  const restoreBounds = previousSettingsBounds || {
-    ...modeBounds[currentMode],
-    x: mainWindow.getBounds().x,
-    y: mainWindow.getBounds().y
-  };
-
-  previousSettingsBounds = null;
-
-  const target = modeBounds[currentMode];
-
-  mainWindow.setMinimumSize(
-    currentMode === 'subtitle' ? 320 : 300,
-    currentMode === 'subtitle' ? 70 : 150
-  );
-
-  mainWindow.setBounds({
-    x: restoreBounds.x,
-    y: restoreBounds.y,
-    width: target.width,
-    height: target.height
-  }, true);
-
-  mainWindow.webContents.send(
-    'overlay:settings-visibility',
-    false
-  );
-
-  scheduleSavePosition();
+  settingsWindow.close();
 }
 
 /* Subtitle dimensions */
@@ -657,9 +674,7 @@ function closeSettingsView() {
 ipcMain.on('overlay:set-subtitle-size', (_event, dimensions) => {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
-  const currentBounds = settingsOpen && previousSettingsBounds
-    ? previousSettingsBounds
-    : mainWindow.getBounds();
+  const currentBounds = mainWindow.getBounds();
 
   const width = validDimension(
     dimensions?.width,
@@ -677,7 +692,7 @@ ipcMain.on('overlay:set-subtitle-size', (_event, dimensions) => {
 
   modeBounds.subtitle = { width, height };
 
-  if (currentMode === 'subtitle' && !settingsOpen) {
+  if (currentMode === 'subtitle') {
     mainWindow.setSize(width, height, true);
   }
 
@@ -694,8 +709,7 @@ ipcMain.on('overlay:reset-window-sizes', () => {
 
   if (
     mainWindow &&
-    !mainWindow.isDestroyed() &&
-    !settingsOpen
+    !mainWindow.isDestroyed()
   ) {
     const target = modeBounds[currentMode];
 
@@ -873,14 +887,16 @@ function createWindow() {
     connect();
   });
 
-  mainWindow.on('move', scheduleSavePosition);
+  mainWindow.on('move', () => {
+    scheduleSavePosition();
+    positionSettingsWindow();
+  });
 
   mainWindow.on('resize', () => {
-    if (!settingsOpen) {
-      scheduleSavePosition();
-    }
+    scheduleSavePosition();
+    positionSettingsWindow();
 
-    if (currentMode === 'subtitle' && !settingsOpen) {
+    if (currentMode === 'subtitle') {
       mainWindow.webContents.send(
         'overlay:window-resizing',
         true
@@ -895,7 +911,7 @@ function createWindow() {
             false
           );
         }
-      }, 250);
+      }, 500);
     }
   });
 
@@ -922,6 +938,16 @@ ipcMain.on('overlay:set-mode', (_event, mode) => {
   setMode(mode);
 });
 
+// Settings window controls. These event names must match preload.js.
+ipcMain.on('overlay:open-settings', () => {
+  openSettingsView();
+});
+
+ipcMain.on('overlay:close-settings', () => {
+  closeSettingsView();
+});
+
+// Keep the older combined event available for compatibility.
 ipcMain.on('overlay:set-settings-open', (_event, open) => {
   if (open) {
     openSettingsView();
@@ -954,6 +980,10 @@ app.on('before-quit', () => {
   clearTimeout(resizeFeedbackTimer);
 
   globalShortcut.unregisterAll();
+
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.destroy();
+  }
 
   if (socket && !socket.destroyed) {
     socket.destroy();

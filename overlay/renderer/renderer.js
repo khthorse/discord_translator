@@ -1,3 +1,4 @@
+const settingsOnly = new URLSearchParams(window.location.search).get('settings') === '1';
 const overlay = document.getElementById('overlay');
 
 const messagesContainer = document.getElementById('messages');
@@ -154,7 +155,7 @@ let subtitleGroups = [];
 let subtitleTimers = [];
 
 let nextSubtitleId = 1;
-let settingsOpen = false;
+let settingsOpen = settingsOnly;
 
 function saveSettings() {
   localStorage.setItem(
@@ -306,48 +307,20 @@ function setMode(mode, notifyMain = true) {
   renderSubtitles();
 }
 
-/* Integrated settings */
+/* Separate settings window */
 
 function openSettings() {
-  if (settingsOpen) return;
-
-  settingsOpen = true;
-
-  overlay.classList.add('settings-open');
-
-  settingsPanel.classList.remove('hidden');
-
-  hudContent.classList.add('hidden');
-  subtitleContent.classList.add('hidden');
-  connectionRow.classList.add('hidden');
-  overlayFooter.classList.add('hidden');
-
-  applySettings();
-
-  window.wookie.setSettingsOpen(true);
+  window.wookie.openSettings();
 }
 
 function closeSettings() {
-  if (!settingsOpen) return;
+  window.wookie.closeSettings();
+}
 
-  settingsOpen = false;
-
-  overlay.classList.remove('settings-open');
-
-  settingsPanel.classList.add('hidden');
-
-  connectionRow.classList.remove('hidden');
-  overlayFooter.classList.remove('hidden');
-
-  if (settings.mode === 'subtitle') {
-    hudContent.classList.add('hidden');
-    subtitleContent.classList.remove('hidden');
-  } else {
-    hudContent.classList.remove('hidden');
-    subtitleContent.classList.add('hidden');
-  }
-
-  window.wookie.setSettingsOpen(false);
+if (settingsOnly) {
+  document.body.classList.add('settings-window');
+  overlay.classList.add('settings-open');
+  settingsPanel.classList.remove('hidden');
 }
 
 settingsButton.addEventListener('click', openSettings);
