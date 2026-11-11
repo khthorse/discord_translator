@@ -23,9 +23,9 @@ const {
   DISCORD_TOKEN,
   SERVICE_URL = 'http://127.0.0.1:8000',
   MAX_CONCURRENT_UTTERANCES = '3',
-  SILENCE_MS = '1000',
-  MIN_UTTERANCE_MS = '600',
-  MAX_UTTERANCE_MS = '20000',
+  SILENCE_MS = '700',
+  MIN_UTTERANCE_MS = '500',
+  MAX_UTTERANCE_MS = '8000',
   SHOW_ORIGINAL = 'true',
   RECORD_WAV = 'false',
   MESSAGE_DELETE_SECONDS = '300',
@@ -39,9 +39,11 @@ if (!DISCORD_TOKEN) {
 const SAMPLE_RATE = 48000;
 const CHANNELS = 2;
 const BYTES_PER_MS = (SAMPLE_RATE * CHANNELS * 2) / 1000;
-const silenceMs = Number(SILENCE_MS);
-const minMs = Number(MIN_UTTERANCE_MS);
-const maxMs = Number(MAX_UTTERANCE_MS);
+const silenceMs = Math.max(100, Number(SILENCE_MS) || 700);
+const minMs = Math.max(0, Number(MIN_UTTERANCE_MS) || 500);
+const maxMs = Math.max(1000, Number(MAX_UTTERANCE_MS) || 8000);
+const minUtteranceBytes = minMs * BYTES_PER_MS;
+const maxUtteranceBytes = maxMs * BYTES_PER_MS;
 const showOriginal = SHOW_ORIGINAL === 'true';
 const recordWav = RECORD_WAV === 'true';
 const messageDeleteSeconds = Math.max(0, Number(MESSAGE_DELETE_SECONDS) || 0);
@@ -625,10 +627,13 @@ function startListening(session) {
     if (session.active.has(userId)) return;
     session.active.add(userId);
 
-    captureUtterance(receiver, userId)
-      .then((pcm) => {
+    captureUtterance(receiver, userId, (pcm) => {
+      // Enqueue each completed chunk immediately, even while this speaker
+      // continues talking. Per-speaker queues preserve the original order.
+      enqueueUtterance(session, userId, pcm);
+    })
+      .then(() => {
         session.active.delete(userId);
-        enqueueUtterance(session, userId, pcm);
       })
       .catch((err) => {
         session.active.delete(userId);
@@ -699,7 +704,7 @@ function drainSessionQueue(session) {
   }
 }
 
-function captureUtterance(receiver, userId) {
+function captureUtterance(receiver, userId, onSegment) {
   return new Promise((resolve, reject) => {
     const opusStream = receiver.subscribe(userId, {
       end: {
@@ -714,26 +719,50 @@ function captureUtterance(receiver, userId) {
       frameSize: 960,
     });
 
-    const chunks = [];
-    const cap = setTimeout(() => opusStream.push(null), maxMs);
+    let chunks = [];
+    let segmentBytes = 0;
+    let settled = false;
 
-    const finish = () => {
-      clearTimeout(cap);
-      resolve(Buffer.concat(chunks));
+    // Split the decoded PCM without ending the Discord stream. This way,
+    // continuous speech is delivered in bounded chunks instead of being cut
+    // off when the maximum chunk duration is reached.
+    const emitSegment = () => {
+      if (segmentBytes === 0) return;
+
+      const pcm = Buffer.concat(chunks, segmentBytes);
+      chunks = [];
+      segmentBytes = 0;
+
+      if (pcm.length >= minUtteranceBytes) {
+        onSegment(pcm);
+      }
     };
 
-    decoder.on('data', chunk => chunks.push(chunk));
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      emitSegment();
+      resolve();
+    };
+
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+
+    decoder.on('data', (chunk) => {
+      chunks.push(chunk);
+      segmentBytes += chunk.length;
+
+      if (segmentBytes >= maxUtteranceBytes) {
+        emitSegment();
+      }
+    });
+
     decoder.on('end', finish);
-
-    decoder.on('error', (err) => {
-      clearTimeout(cap);
-      reject(err);
-    });
-
-    opusStream.on('error', (err) => {
-      clearTimeout(cap);
-      reject(err);
-    });
+    decoder.on('error', fail);
+    opusStream.on('error', fail);
 
     opusStream.pipe(decoder);
   });
