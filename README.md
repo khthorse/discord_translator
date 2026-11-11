@@ -61,6 +61,21 @@ Set `RECORD_WAV=true` and `TRANSLATOR=none`, talk, and check:
 3. the transcript shows up in the text channel.
 Then switch `RECORD_WAV` back to `false`.
 
+## Live processing and latency
+
+The voice bot processes utterances from different speakers concurrently while keeping each
+speaker's messages in order. The Python service separately limits simultaneous Whisper jobs
+to avoid overloading the GPU.
+
+- `MAX_CONCURRENT_UTTERANCES=3` controls active utterance pipelines per server.
+- `MAX_CONCURRENT_TRANSCRIPTIONS=2` controls simultaneous Whisper inference jobs.
+- If GPU memory usage or transcription time gets worse under load, lower
+  `MAX_CONCURRENT_TRANSCRIPTIONS` to `1`. Increase only after measuring under real traffic.
+
+The bot logs its pending/active utterance counts. The Python service logs queue wait,
+transcription, translation, and total processing times. Compare those timings while testing
+with one, two, and three speakers before changing the concurrency values.
+
 ## Choosing a translator
 - `TRANSLATOR=google` + `GOOGLE_API_KEY`
 - `TRANSLATOR=openai` + `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`
