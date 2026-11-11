@@ -478,11 +478,13 @@ async function onLeave(interaction) {
   session.connection.destroy();
   sessions.delete(interaction.guildId);
 
-  const deletedCount = await clearBotMessages(interaction.guild);
+  const cleanup = await clearBotMessages(interaction.guild);
+  const summary = `Checked ${cleanup.channelsChecked} channel(s), scanned ${cleanup.messagesScanned} message(s), found ${cleanup.botMessagesFound} bot message(s), and deleted ${cleanup.deletedCount}.`;
+  const issueSummary = cleanup.errors.length
+    ? `\\n\\nSome cleanup steps failed:\\n${cleanup.errors.slice(0, 5).map(error => `• ${error}`).join('\\n')}${cleanup.errors.length > 5 ? `\\n• And ${cleanup.errors.length - 5} more error(s). Check the bot console.` : ''}`
+    : '';
 
-  return interaction.editReply(
-    `Left the voice channel and deleted ${deletedCount} bot-posted message(s) from the configured translation channels.`,
-  );
+  return interaction.editReply(`Left the voice channel. ${summary}${issueSummary}`);
 }
 
 // ------------------------------------------------------- language channels ---
