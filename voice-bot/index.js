@@ -339,6 +339,66 @@ async function onJoin(interaction) {
   );
 }
 
+async function clearBotMessages(guild) {
+  const settings = getGuildSettings(guild.id);
+  const configuredChannelIds = new Set([
+    ...Object.values(languageChannels[guild.id] ?? {}),
+    settings.liveChannelId,
+  ].filter(Boolean));
+
+  let deletedCount = 0;
+
+  for (const channelId of configuredChannelIds) {
+    const channel = await getGuildTextChannel(guild, channelId);
+    if (!channel?.isTextBased() || !channel.messages) continue;
+
+    let before;
+    while (true) {
+      const page = await channel.messages.fetch({
+        limit: 100,
+        ...(before ? { before } : {}),
+      }).catch((err) => {
+        console.error(`Could not read message history in #${channel.name}:`, err.message);
+        return null;
+      });
+
+      if (!page?.size) break;
+      before = page.last().id;
+
+      const botMessages = [...page.values()].filter(
+        message => message.author.id === client.user.id,
+      );
+
+      const recent = botMessages.filter(
+        message => Date.now() - message.createdTimestamp < 14 * 24 * 60 * 60 * 1000,
+      );
+      const old = botMessages.filter(
+        message => Date.now() - message.createdTimestamp >= 14 * 24 * 60 * 60 * 1000,
+      );
+
+      if (recent.length) {
+        const deleted = await channel.bulkDelete(recent, true).catch((err) => {
+          console.error(`Could not bulk-delete bot messages in #${channel.name}:`, err.message);
+          return null;
+        });
+        deletedCount += deleted?.size ?? 0;
+      }
+
+      for (const message of old) {
+        await message.delete().then(() => {
+          deletedCount++;
+        }).catch((err) => {
+          console.error(`Could not delete an old bot message in #${channel.name}:`, err.message);
+        });
+      }
+
+      if (page.size < 100) break;
+    }
+  }
+
+  return deletedCount;
+}
+
 async function onLeave(interaction) {
   const session = sessions.get(interaction.guildId);
 
@@ -349,13 +409,16 @@ async function onLeave(interaction) {
     });
   }
 
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
   session.connection.destroy();
   sessions.delete(interaction.guildId);
 
-  return interaction.reply({
-    content: 'Left the voice channel.',
-    flags: MessageFlags.Ephemeral,
-  });
+  const deletedCount = await clearBotMessages(interaction.guild);
+
+  return interaction.editReply(
+    `Left the voice channel and deleted ${deletedCount} bot-posted message(s) from the configured translation channels.`,
+  );
 }
 
 // ------------------------------------------------------- language channels ---
