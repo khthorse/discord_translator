@@ -26,6 +26,9 @@ const {
   SILENCE_MS = '700',
   MIN_UTTERANCE_MS = '500',
   MAX_UTTERANCE_MS = '8000',
+  SEGMENT_SEARCH_MS = '1200',
+  SEGMENT_MIN_MS = '4000',
+  SEGMENT_QUIET_RMS = '700',
   SHOW_ORIGINAL = 'true',
   RECORD_WAV = 'false',
   MESSAGE_DELETE_SECONDS = '300',
@@ -44,6 +47,9 @@ const minMs = Math.max(0, Number(MIN_UTTERANCE_MS) || 500);
 const maxMs = Math.max(1000, Number(MAX_UTTERANCE_MS) || 8000);
 const minUtteranceBytes = minMs * BYTES_PER_MS;
 const maxUtteranceBytes = maxMs * BYTES_PER_MS;
+const segmentSearchBytes = Math.max(0, Number(SEGMENT_SEARCH_MS) || 1200) * BYTES_PER_MS;
+const segmentMinBytes = Math.max(1000, Number(SEGMENT_MIN_MS) || 4000) * BYTES_PER_MS;
+const segmentQuietRms = Math.max(0, Number(SEGMENT_QUIET_RMS) || 700);
 const showOriginal = SHOW_ORIGINAL === 'true';
 const recordWav = RECORD_WAV === 'true';
 const messageDeleteSeconds = Math.max(0, Number(MESSAGE_DELETE_SECONDS) || 0);
@@ -723,15 +729,58 @@ function captureUtterance(receiver, userId, onSegment) {
     let segmentBytes = 0;
     let settled = false;
 
-    // Split the decoded PCM without ending the Discord stream. This way,
-    // continuous speech is delivered in bounded chunks instead of being cut
-    // off when the maximum chunk duration is reached.
-    const emitSegment = () => {
-      if (segmentBytes === 0) return;
+    // Look for a low-energy point near the chunk limit. Decoder output is
+    // normally delivered in short PCM frames, so boundaries stay frame-aligned.
+    const findQuietSplitIndex = () => {
+      if (chunks.length < 4 || segmentBytes < segmentMinBytes) return -1;
 
-      const pcm = Buffer.concat(chunks, segmentBytes);
-      chunks = [];
-      segmentBytes = 0;
+      const searchStartByte = Math.max(0, segmentBytes - segmentSearchBytes);
+      const frameStarts = [];
+      let offset = 0;
+      for (const frame of chunks) {
+        frameStarts.push(offset);
+        offset += frame.length;
+      }
+
+      let bestRms = Infinity;
+      let bestSplit = -1;
+
+      // Score 4 adjacent decoder frames (~80ms at 20ms/frame) and split
+      // near the middle of the quietest window in the search region.
+      for (let i = 0; i <= chunks.length - 4; i++) {
+        const windowStart = frameStarts[i];
+        const windowEnd = frameStarts[i + 4];
+        if (windowStart < searchStartByte || windowEnd > segmentBytes) continue;
+
+        let sumSquares = 0;
+        let samples = 0;
+        for (let j = i; j < i + 4; j++) {
+          const frame = chunks[j];
+          for (let k = 0; k + 1 < frame.length; k += 2) {
+            const sample = frame.readInt16LE(k);
+            sumSquares += sample * sample;
+            samples++;
+          }
+        }
+
+        if (samples === 0) continue;
+        const rms = Math.sqrt(sumSquares / samples);
+        if (rms < bestRms) {
+          bestRms = rms;
+          bestSplit = i + 2;
+        }
+      }
+
+      return bestRms <= segmentQuietRms ? bestSplit : -1;
+    };
+
+    const emitSegment = (frameCount = chunks.length) => {
+      if (frameCount <= 0) return;
+
+      const segmentFrames = chunks.splice(0, frameCount);
+      const emittedBytes = segmentFrames.reduce((total, frame) => total + frame.length, 0);
+      const pcm = Buffer.concat(segmentFrames, emittedBytes);
+      segmentBytes -= emittedBytes;
 
       if (pcm.length >= minUtteranceBytes) {
         onSegment(pcm);
@@ -756,7 +805,10 @@ function captureUtterance(receiver, userId, onSegment) {
       segmentBytes += chunk.length;
 
       if (segmentBytes >= maxUtteranceBytes) {
-        emitSegment();
+        const quietSplit = findQuietSplitIndex();
+        // Fall back to the hard maximum when no sufficiently quiet boundary
+        // exists, so continuous speech can never hold a chunk indefinitely.
+        emitSegment(quietSplit > 0 ? quietSplit : chunks.length);
       }
     });
 
