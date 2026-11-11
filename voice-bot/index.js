@@ -1061,7 +1061,7 @@ async function handleUtterance(session, userId, pcm) {
           if (!translatedText) return null;
 
           const label = `${languageFlag(language)} ${language.toUpperCase()}`;
-          return `**${label}**\\n${escapeMarkdown(translatedText)}`;
+          return `**${label}**\n${escapeMarkdown(translatedText)}`;
         })
         .filter(Boolean);
 
@@ -1071,9 +1071,9 @@ async function handleUtterance(session, userId, pcm) {
 
       const liveMessage = [
         `**${escapeMarkdown(name)}**`,
-        `**${originalLabel}**\\n${escapeMarkdown(result.original)}`,
+        `**${originalLabel}**\n${escapeMarkdown(result.original)}`,
         ...liveBlocks,
-      ].join('\\n\\n');
+      ].join('\n\n');
 
       await sendBotMessage(liveChannel, liveMessage);
     }
