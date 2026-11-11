@@ -71,8 +71,13 @@ The Python service separately limits simultaneous Whisper jobs to avoid overload
 - `MAX_CONCURRENT_UTTERANCES=3` controls active audio-chunk pipelines per server.
 - `SILENCE_MS=700` ends a speaker's capture after 700ms of silence.
 - `MIN_UTTERANCE_MS=500` ignores chunks shorter than 500ms.
-- `MAX_UTTERANCE_MS=8000` emits chunks about every 8 seconds during continuous speech,
-  without stopping audio capture. Adjust this upward if transcripts feel too fragmented.
+- `MAX_UTTERANCE_MS=8000` sets the hard maximum chunk duration during continuous speech.
+  The bot searches near the end of each chunk for a quieter boundary before splitting.
+- `SEGMENT_SEARCH_MS=1200` sets how far back from the hard limit it searches.
+- `SEGMENT_MIN_MS=4000` prevents very short chunks from being emitted by quiet-boundary
+  detection.
+- `SEGMENT_QUIET_RMS=700` sets the 16-bit PCM RMS threshold used to recognize a quiet
+  window. If no suitable quiet point is found, the bot falls back to the hard maximum.
 - `MAX_CONCURRENT_TRANSCRIPTIONS=2` controls simultaneous Whisper inference jobs.
 - `MAX_CONCURRENT_TRANSLATIONS=2` controls how many target languages are translated at once.
   Extra targets wait for a worker; this makes adding languages possible without launching
