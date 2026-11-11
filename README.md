@@ -63,11 +63,16 @@ Then switch `RECORD_WAV` back to `false`.
 
 ## Live processing and latency
 
-The voice bot processes utterances from different speakers concurrently while keeping each
-speaker's messages in order. The Python service separately limits simultaneous Whisper jobs
-to avoid overloading the GPU.
+The voice bot processes audio chunks from different speakers concurrently while keeping each
+speaker's chunks in order. During continuous speech, it emits a chunk every `MAX_UTTERANCE_MS`
+without ending the Discord audio stream; the final shorter chunk is flushed after silence.
+The Python service separately limits simultaneous Whisper jobs to avoid overloading the GPU.
 
-- `MAX_CONCURRENT_UTTERANCES=3` controls active utterance pipelines per server.
+- `MAX_CONCURRENT_UTTERANCES=3` controls active audio-chunk pipelines per server.
+- `SILENCE_MS=700` ends a speaker's capture after 700ms of silence.
+- `MIN_UTTERANCE_MS=500` ignores chunks shorter than 500ms.
+- `MAX_UTTERANCE_MS=8000` emits chunks about every 8 seconds during continuous speech,
+  without stopping audio capture. Adjust this upward if transcripts feel too fragmented.
 - `MAX_CONCURRENT_TRANSCRIPTIONS=2` controls simultaneous Whisper inference jobs.
 - `MAX_CONCURRENT_TRANSLATIONS=2` controls how many target languages are translated at once.
   Extra targets wait for a worker; this makes adding languages possible without launching
