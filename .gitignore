@@ -7,3 +7,4 @@ tokens.txt
 
 # Downloaded Whisper models
 service/models/
+voice-bot/guild-languages.json
