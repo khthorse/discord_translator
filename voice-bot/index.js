@@ -1107,7 +1107,8 @@ async function handleUtterance(session, userId, pcm) {
       await sendBotMessage(liveChannel, liveMessage);
     }
   }
-  
+}
+
 // -------------------------------------------------------------- shutdown ---
 
 process.on('SIGINT', () => {
