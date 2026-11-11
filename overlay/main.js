@@ -922,6 +922,32 @@ function createWindow() {
 
 /* IPC */
 
+// Move the frameless overlay manually so the title bar can receive real
+// hover events. Chromium's -webkit-app-region: drag suppresses those events.
+let activeWindowDrag = null;
+
+ipcMain.on('overlay:drag-start', (_event, point) => {
+  if (!mainWindow || mainWindow.isDestroyed() || !point) return;
+  const [windowX, windowY] = mainWindow.getPosition();
+  activeWindowDrag = {
+    pointerX: Number(point.screenX),
+    pointerY: Number(point.screenY),
+    windowX,
+    windowY
+  };
+});
+
+ipcMain.on('overlay:drag-move', (_event, point) => {
+  if (!activeWindowDrag || !mainWindow || mainWindow.isDestroyed() || !point) return;
+  const x = activeWindowDrag.windowX + Number(point.screenX) - activeWindowDrag.pointerX;
+  const y = activeWindowDrag.windowY + Number(point.screenY) - activeWindowDrag.pointerY;
+  if (Number.isFinite(x) && Number.isFinite(y)) mainWindow.setPosition(Math.round(x), Math.round(y));
+});
+
+ipcMain.on('overlay:drag-end', () => {
+  activeWindowDrag = null;
+});
+
 ipcMain.on('overlay:close', () => {
   app.quit();
 });

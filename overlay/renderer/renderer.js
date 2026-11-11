@@ -1,5 +1,6 @@
 const settingsOnly = new URLSearchParams(window.location.search).get('settings') === '1';
 const overlay = document.getElementById('overlay');
+const topbar = document.querySelector('.topbar');
 
 const messagesContainer = document.getElementById('messages');
 const subtitlesContainer = document.getElementById('subtitles');
@@ -335,6 +336,37 @@ if (settingsOnly) {
 
 settingsButton.addEventListener('click', openSettings);
 closeSettingsButton.addEventListener('click', closeSettings);
+
+// The title bar must remain a normal hit-testable area for hover detection.
+// Implement dragging manually so hover and drag can work at the same time.
+if (!settingsOnly && topbar) {
+  let draggingWindow = false;
+
+  topbar.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || event.target.closest('button, input, a')) return;
+    if (overlay.classList.contains('position-locked')) return;
+
+    draggingWindow = true;
+    topbar.setPointerCapture(event.pointerId);
+    window.wookie.startWindowDrag(event.screenX, event.screenY);
+    event.preventDefault();
+  });
+
+  topbar.addEventListener('pointermove', event => {
+    if (!draggingWindow) return;
+    window.wookie.moveWindowDrag(event.screenX, event.screenY);
+  });
+
+  const stopWindowDrag = () => {
+    if (!draggingWindow) return;
+    draggingWindow = false;
+    window.wookie.endWindowDrag();
+  };
+
+  topbar.addEventListener('pointerup', stopWindowDrag);
+  topbar.addEventListener('pointercancel', stopWindowDrag);
+  topbar.addEventListener('lostpointercapture', stopWindowDrag);
+}
 
 /* Status */
 

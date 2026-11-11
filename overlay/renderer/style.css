@@ -398,8 +398,10 @@ input {
 
   padding: 3px;
 
-  pointer-events: none;
-  -webkit-app-region: drag;
+  /* Keep the title bar hit-testable so hover works. Dragging is handled
+     through pointer events in renderer.js instead of Chromium drag regions. */
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
 }
 
 .overlay.subtitle-mode .toolbar {
@@ -835,4 +837,20 @@ body.settings-window .settings-panel input {
     opacity: 1;
     transform: translateY(0);
   }
+}
+/* Settings window must keep a constant appearance.
+   Do not let the main overlay's subtitle hover rules affect it. */
+body.settings-window .overlay,
+body.settings-window .overlay:hover,
+body.settings-window .overlay:focus,
+body.settings-window .overlay:focus-within,
+body.settings-window .overlay.subtitle-mode,
+body.settings-window .overlay.subtitle-mode:hover,
+body.settings-window .overlay.subtitle-mode:focus-within,
+body.settings-window .overlay.subtitle-mode.subtitle-transparent:hover {
+  background: rgba(12, 17, 25, 0.97) !important;
+  border: 1px solid rgba(125, 160, 190, 0.35) !important;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.4) !important;
+  backdrop-filter: blur(16px) !important;
+  opacity: 1 !important;
 }

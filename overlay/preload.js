@@ -59,6 +59,18 @@ contextBridge.exposeInMainWorld('wookie', {
     ipcRenderer.send('overlay:set-position-lock', locked);
   },
 
+  startWindowDrag(screenX, screenY) {
+    ipcRenderer.send('overlay:drag-start', { screenX, screenY });
+  },
+
+  moveWindowDrag(screenX, screenY) {
+    ipcRenderer.send('overlay:drag-move', { screenX, screenY });
+  },
+
+  endWindowDrag() {
+    ipcRenderer.send('overlay:drag-end');
+  },
+
   setSubtitleSize(width, height) {
     ipcRenderer.send('overlay:set-subtitle-size', {
       width,
