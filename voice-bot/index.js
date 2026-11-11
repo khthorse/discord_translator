@@ -346,28 +346,75 @@ async function clearBotMessages(guild) {
     settings.liveChannelId,
   ].filter(Boolean));
 
-  let deletedCount = 0;
+  const report = {
+    channelsChecked: 0,
+    messagesScanned: 0,
+    botMessagesFound: 0,
+    deletedCount: 0,
+    errors: [],
+  };
 
   for (const channelId of configuredChannelIds) {
-    const channel = await getGuildTextChannel(guild, channelId);
-    if (!channel?.isTextBased() || !channel.messages) continue;
+    let channel;
+
+    try {
+      channel = await guild.channels.fetch(channelId);
+    } catch (err) {
+      const detail = `Could not fetch channel ${channelId}: ${err.message}`;
+      console.error(detail);
+      report.errors.push(detail);
+      continue;
+    }
+
+    if (!channel?.isTextBased?.() || !channel.messages) {
+      const detail = `Configured channel ${channelId} is missing or is not a supported text channel.`;
+      console.warn(detail);
+      report.errors.push(detail);
+      continue;
+    }
+
+    report.channelsChecked++;
+
+    const permissions = channel.permissionsFor(client.user);
+    const missingPermissions = [
+      [PermissionFlagsBits.ViewChannel, 'View Channel'],
+      [PermissionFlagsBits.ReadMessageHistory, 'Read Message History'],
+      [PermissionFlagsBits.ManageMessages, 'Manage Messages'],
+    ]
+      .filter(([permission]) => !permissions?.has(permission))
+      .map(([, name]) => name);
+
+    if (missingPermissions.length) {
+      const detail = `Missing permissions in #${channel.name}: ${missingPermissions.join(', ')}.`;
+      console.warn(detail);
+      report.errors.push(detail);
+    }
 
     let before;
     while (true) {
-      const page = await channel.messages.fetch({
-        limit: 100,
-        ...(before ? { before } : {}),
-      }).catch((err) => {
-        console.error(`Could not read message history in #${channel.name}:`, err.message);
-        return null;
-      });
+      let page;
 
-      if (!page?.size) break;
+      try {
+        page = await channel.messages.fetch({
+          limit: 100,
+          ...(before ? { before } : {}),
+        });
+      } catch (err) {
+        const detail = `Could not read message history in #${channel.name}: ${err.message}`;
+        console.error(detail);
+        report.errors.push(detail);
+        break;
+      }
+
+      if (!page.size) break;
+
+      report.messagesScanned += page.size;
       before = page.last().id;
 
       const botMessages = [...page.values()].filter(
         message => message.author.id === client.user.id,
       );
+      report.botMessagesFound += botMessages.length;
 
       const recent = botMessages.filter(
         message => Date.now() - message.createdTimestamp < 14 * 24 * 60 * 60 * 1000,
@@ -377,26 +424,43 @@ async function clearBotMessages(guild) {
       );
 
       if (recent.length) {
-        const deleted = await channel.bulkDelete(recent, true).catch((err) => {
-          console.error(`Could not bulk-delete bot messages in #${channel.name}:`, err.message);
-          return null;
-        });
-        deletedCount += deleted?.size ?? 0;
+        try {
+          const deleted = await channel.bulkDelete(recent, true);
+          report.deletedCount += deleted.size;
+        } catch (err) {
+          const detail = `Bulk delete failed in #${channel.name}: ${err.message}. Trying individual deletes.`;
+          console.error(detail);
+          report.errors.push(detail);
+
+          for (const message of recent) {
+            try {
+              await message.delete();
+              report.deletedCount++;
+            } catch (deleteErr) {
+              const failure = `Could not delete message ${message.id} in #${channel.name}: ${deleteErr.message}`;
+              console.error(failure);
+              report.errors.push(failure);
+            }
+          }
+        }
       }
 
       for (const message of old) {
-        await message.delete().then(() => {
-          deletedCount++;
-        }).catch((err) => {
-          console.error(`Could not delete an old bot message in #${channel.name}:`, err.message);
-        });
+        try {
+          await message.delete();
+          report.deletedCount++;
+        } catch (err) {
+          const detail = `Could not delete old message ${message.id} in #${channel.name}: ${err.message}`;
+          console.error(detail);
+          report.errors.push(detail);
+        }
       }
 
       if (page.size < 100) break;
     }
   }
 
-  return deletedCount;
+  return report;
 }
 
 async function onLeave(interaction) {
