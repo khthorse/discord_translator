@@ -4,3 +4,6 @@ __pycache__/
 .venv/
 voice-bot/recordings/
 tokens.txt
+
+# Downloaded Whisper models
+service/models/
