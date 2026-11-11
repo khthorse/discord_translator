@@ -69,8 +69,11 @@ to avoid overloading the GPU.
 
 - `MAX_CONCURRENT_UTTERANCES=3` controls active utterance pipelines per server.
 - `MAX_CONCURRENT_TRANSCRIPTIONS=2` controls simultaneous Whisper inference jobs.
-- If GPU memory usage or transcription time gets worse under load, lower
-  `MAX_CONCURRENT_TRANSCRIPTIONS` to `1`. Increase only after measuring under real traffic.
+- `MAX_CONCURRENT_TRANSLATIONS=2` controls how many target languages are translated at once.
+  Extra targets wait for a worker; this makes adding languages possible without launching
+  an unlimited number of requests at once.
+- Start with both values at `2` on a local GPU. If Ollama generation slows down or GPU
+  memory pressure increases, reduce translation concurrency to `1` and compare timings.
 
 The bot logs its pending/active utterance counts. The Python service logs queue wait,
 transcription, translation, and total processing times. Compare those timings while testing
