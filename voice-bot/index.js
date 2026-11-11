@@ -1070,11 +1070,9 @@ async function handleUtterance(session, userId, pcm) {
 
       const liveMessage = [
         `**${escapeMarkdown(name)}**`,
-        '',
-        `**Original (${originalLanguage}):**`,
-        escapeMarkdown(result.original),
-        ...liveLines.length > 0 ? ['', ...liveLines] : [],
-      ].join('\n');
+        `${originalLanguage} **Original:** ${escapeMarkdown(result.original)}`,
+        ...liveLines,
+      ].join('\\n');
 
       await sendBotMessage(liveChannel, liveMessage);
     }
