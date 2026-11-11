@@ -162,6 +162,12 @@ function saveSettings() {
     'wookie-settings',
     JSON.stringify(settings)
   );
+
+  // Settings are edited in a separate BrowserWindow, so apply them to the
+  // main overlay immediately as well. The main window ignores its own echo.
+  if (settingsOnly) {
+    window.wookie.publishSettings(settings);
+  }
 }
 
 function clearSubtitleTimers() {
@@ -310,7 +316,11 @@ function setMode(mode, notifyMain = true) {
 /* Separate settings window */
 
 function openSettings() {
-  window.wookie.openSettings();
+  if (settingsOnly) {
+    window.wookie.closeSettings();
+  } else {
+    window.wookie.openSettings();
+  }
 }
 
 function closeSettings() {
@@ -829,6 +839,23 @@ window.wookie.onWindowResizing(resizing => {
 window.wookie.onModeChanged(mode => {
   setMode(mode, false);
 });
+
+// Receive settings edited in the floating settings window.
+if (!settingsOnly) {
+  window.wookie.onSettingsChanged(nextSettings => {
+    if (!nextSettings || typeof nextSettings !== 'object') return;
+
+    settings = {
+      ...settings,
+      ...nextSettings,
+      hud: { ...settings.hud, ...(nextSettings.hud || {}) },
+      subtitle: { ...settings.subtitle, ...(nextSettings.subtitle || {}) }
+    };
+
+    saveSettings();
+    applySettings();
+  });
+}
 
 /* Initial setup */
 

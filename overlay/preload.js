@@ -33,6 +33,12 @@ contextBridge.exposeInMainWorld('wookie', {
     });
   },
 
+  onSettingsChanged(callback) {
+    ipcRenderer.on('overlay:settings-changed', (_event, settings) => {
+      callback(settings);
+    });
+  },
+
   close() {
     ipcRenderer.send('overlay:close');
   },
@@ -61,7 +67,11 @@ contextBridge.exposeInMainWorld('wookie', {
   },
 
   openSettings() {
-    ipcRenderer.send('overlay:open-settings');
+    ipcRenderer.send('overlay:toggle-settings');
+  },
+
+  publishSettings(settings) {
+    ipcRenderer.send('overlay:settings-changed', settings);
   },
 
   closeSettings() {

@@ -938,6 +938,23 @@ ipcMain.on('overlay:set-mode', (_event, mode) => {
   setMode(mode);
 });
 
+// Settings window controls. The main cog toggles the floating window.
+ipcMain.on('overlay:toggle-settings', () => {
+  if (settingsWindow && !settingsWindow.isDestroyed() && settingsWindow.isVisible()) {
+    closeSettingsView();
+  } else {
+    openSettingsView();
+  }
+});
+
+// Forward live settings changes from the settings window to the main overlay.
+ipcMain.on('overlay:settings-changed', (event, settings) => {
+  if (!settings || typeof settings !== 'object') return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (event.sender === mainWindow.webContents) return;
+  mainWindow.webContents.send('overlay:settings-changed', settings);
+});
+
 // Settings window controls. These event names must match preload.js.
 ipcMain.on('overlay:open-settings', () => {
   openSettingsView();
