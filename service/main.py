@@ -77,8 +77,12 @@ model = WhisperModel(
 translator = build_translator(os.getenv("TRANSLATOR", "none"))
 print(f"Translator: {type(translator).__name__}")
 
-# One GPU job at a time. Requests queue up behind this lock.
-gpu_lock = threading.Lock()
+# Keep a small, configurable number of Whisper jobs active at once.
+# CTranslate2 supports concurrent calls; start conservatively to avoid GPU contention.
+MAX_CONCURRENT_TRANSCRIPTIONS = max(
+    1, int(os.getenv("MAX_CONCURRENT_TRANSCRIPTIONS", "2"))
+)
+transcription_slots = threading.BoundedSemaphore(MAX_CONCURRENT_TRANSCRIPTIONS)
 
 app = FastAPI()
 
@@ -164,7 +168,12 @@ def process(
             detail=f"bad audio: {err}",
         )
 
-    with gpu_lock:
+    queue_started = time.perf_counter()
+    transcription_slots.acquire()
+    queue_wait = time.perf_counter() - queue_started
+
+    try:
+        stt_started = time.perf_counter()
         lang = pick_language(audio, candidates)
 
         segments, info = model.transcribe(
@@ -183,6 +192,9 @@ def process(
         ).strip()
 
         lang = lang or info.language
+        stt_duration = time.perf_counter() - stt_started
+    finally:
+        transcription_slots.release()
 
     t1 = time.perf_counter()
 
@@ -215,7 +227,8 @@ def process(
 
     print(
         f"[{speaker}] ({lang}) {text!r} -> {translations or None}  "
-        f"[stt {t1 - t0:.2f}s, translate {t2 - t1:.2f}s]"
+        f"[queue {queue_wait:.2f}s, stt {stt_duration:.2f}s, "
+        f"translate {t2 - t1:.2f}s, total {t2 - t0:.2f}s]"
     )
 
     return {
@@ -259,6 +272,7 @@ def health():
         "ok": True,
         "model": WHISPER_MODEL,
         "translator": type(translator).__name__,
+        "max_concurrent_transcriptions": MAX_CONCURRENT_TRANSCRIPTIONS,
     }
 
 
