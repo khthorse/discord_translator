@@ -5,6 +5,7 @@ translates it, and returns JSON. Run with: python main.py
 
 import io
 import math
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import sysconfig
 import threading
@@ -83,6 +84,16 @@ MAX_CONCURRENT_TRANSCRIPTIONS = max(
     1, int(os.getenv("MAX_CONCURRENT_TRANSCRIPTIONS", "2"))
 )
 transcription_slots = threading.BoundedSemaphore(MAX_CONCURRENT_TRANSCRIPTIONS)
+
+# Translate different target languages in parallel, but cap the number of
+# simultaneous requests so a local Ollama/GPU backend is not flooded.
+MAX_CONCURRENT_TRANSLATIONS = max(
+    1, int(os.getenv("MAX_CONCURRENT_TRANSLATIONS", "2"))
+)
+translation_pool = ThreadPoolExecutor(
+    max_workers=MAX_CONCURRENT_TRANSLATIONS,
+    thread_name_prefix="translation",
+)
 
 app = FastAPI()
 
@@ -207,21 +218,33 @@ def process(
     )
 
     if text and lang and allowed:
-        for target in targets:
-            if target == lang:
-                continue
+        translation_targets = [
+            target for target in targets if target != lang
+        ]
+
+        # Submit all target languages together. The bounded pool allows
+        # several translations to run at once and queues any additional
+        # targets without creating an unbounded number of worker threads.
+        futures = {
+            translation_pool.submit(
+                translator.translate,
+                text,
+                lang,
+                target,
+            ): target
+            for target in translation_targets
+        }
+
+        for future in as_completed(futures):
+            target = futures[future]
 
             try:
-                translations[target] = translator.translate(
-                    text,
-                    lang,
-                    target,
-                )
+                result = future.result()
+                if result is not None:
+                    translations[target] = result
 
             except Exception as err:
-                print(
-                    f"Translation {lang}->{target} failed: {err}"
-                )
+                print(f"Translation {lang}->{target} failed: {err}")
 
     t2 = time.perf_counter()
 
@@ -273,6 +296,7 @@ def health():
         "model": WHISPER_MODEL,
         "translator": type(translator).__name__,
         "max_concurrent_transcriptions": MAX_CONCURRENT_TRANSCRIPTIONS,
+        "max_concurrent_translations": MAX_CONCURRENT_TRANSLATIONS,
     }
 
 
