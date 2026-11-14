@@ -123,6 +123,34 @@ const commands = [
         })
         .addSubcommand(sub =>
           sub.setName('list').setDescription('List live-feed languages')))
+
+    .addSubcommandGroup(group =>
+      group
+        .setName('standard')
+        .setDescription('Set the default two-language translation pair')
+        .addSubcommand(sub => sub
+          .setName('set')
+          .setDescription('Set the standard source-language pair')
+          .addStringOption(option => option.setName('first').setDescription('First language in the pair').setRequired(true).addChoices(...LANGUAGE_CHOICES))
+          .addStringOption(option => option.setName('second').setDescription('Second language in the pair').setRequired(true).addChoices(...LANGUAGE_CHOICES)))
+        .addSubcommand(sub => sub
+          .setName('list')
+          .setDescription('Show the standard language pair')))
+    .setContexts(InteractionContextType.Guild),
+
+  new SlashCommandBuilder()
+    .setName('translate')
+    .setDescription('Translate text or recent channel messages')
+    .addSubcommand(sub => sub
+      .setName('text')
+      .setDescription('Translate text and post the original and translation')
+      .addStringOption(option => option.setName('text').setDescription('Text to translate').setRequired(true).setMaxLength(4000))
+      .addStringOption(option => option.setName('language').setDescription('Optional target language').addChoices(...LANGUAGE_CHOICES)))
+    .addSubcommand(sub => sub
+      .setName('recent')
+      .setDescription('Translate recent messages in this channel')
+      .addIntegerOption(option => option.setName('count').setDescription('Number of messages (default 1, maximum 20)').setMinValue(1).setMaxValue(20))
+      .addStringOption(option => option.setName('language').setDescription('Optional target language').addChoices(...LANGUAGE_CHOICES)))
     .setContexts(InteractionContextType.Guild),
 
   new SlashCommandBuilder()
