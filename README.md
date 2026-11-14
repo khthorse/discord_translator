@@ -153,4 +153,4 @@ The relay forwards only transcript text and display metadata, not voice audio. T
 
 ## Privacy
 The bot processes everyone's voice in the channel. Tell your friends. Audio is kept in memory only and
-never written to disk unless you turn on `RECORD_WAV`.
+never written to disk unless you turn on `RECORD_WAV`. When `/translate recent` is used, the bot saves the selected message text and translation metadata locally in `voice-bot/translation-history.json` so it can avoid duplicate translations after deleting originals. This file is ignored by Git; treat it as private server data and do not share it.
