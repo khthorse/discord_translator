@@ -597,7 +597,7 @@ async function onLanguage(interaction) {
 
   const group = interaction.options.getSubcommandGroup(true);
   const action = interaction.options.getSubcommand();
-  const language = action === 'list'
+  const language = group === 'standard' || action === 'list'
     ? null
     : interaction.options.getString('language', true).toLowerCase();
 
