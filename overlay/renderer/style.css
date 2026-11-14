@@ -682,6 +682,35 @@ body.settings-window .settings-panel input {
   cursor: pointer;
 }
 
+.setting-group input[type="url"],
+.setting-group input[type="password"],
+.setting-group select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 9px;
+  color: #edf3fa;
+  font-size: 11px;
+  background: rgba(8, 13, 20, 0.72);
+  border: 1px solid rgba(145, 175, 205, 0.2);
+  border-radius: 6px;
+}
+
+.setting-group input[type="url"]:focus,
+.setting-group input[type="password"]:focus,
+.setting-group select:focus {
+  outline: none;
+  border-color: rgba(126, 229, 178, 0.7);
+}
+
+.setting-group select {
+  cursor: pointer;
+}
+
+.setting-group select option {
+  color: #edf3fa;
+  background: #151e29;
+}
+
 .setting-group input[type="range"]:disabled {
   opacity: 0.4;
   cursor: not-allowed;
