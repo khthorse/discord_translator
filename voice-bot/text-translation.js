@@ -151,6 +151,7 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
 
   channelRecords.sort((a, b) => b.timestamp - a.timestamp);
   const pending = [];
+  const translationErrors = [];
   for (const record of channelRecords) {
     if (pending.length >= count) break;
     if (!record.content?.trim()) continue;
@@ -170,6 +171,7 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
       if (!result.translation || record.translations?.[result.target]) continue;
       pending.push({ record, result });
     } catch (err) {
+      translationErrors.push(err.message || 'Unknown translation error');
       console.error(`Recent translation failed for message ${record.id}:`, err);
     }
   }
@@ -240,9 +242,15 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
     : deletionFailures
       ? ` ${deletionFailures} original message(s) could not be deleted; check the bot's channel permissions.`
       : ' Originals were removed after their replacement was posted.';
+  if (!selected.length && translationErrors.length) {
+    return interaction.editReply(
+      `Could not translate any messages. ${String(translationErrors[0]).slice(0, 400)} Originals were left unchanged.`,
+    );
+  }
+
   return interaction.editReply(
     selected.length
-      ? `Posted ${selected.length} translation(s) in chronological order.${deletionNote}`
+      ? `Posted ${selected.length} translation(s) in chronological order.${deletionNote}${translationErrors.length ? ` ${translationErrors.length} message(s) could not be translated.` : ''}`
       : 'No eligible untranslated messages were found. Originals were left unchanged.',
   );
 }
