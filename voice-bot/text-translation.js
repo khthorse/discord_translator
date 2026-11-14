@@ -170,9 +170,15 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
   const selected = [];
   for (const { record, result } of pending) {
     try {
-      record.source = result.source;
-      record.translations ??= {};
-      record.translations[result.target] = result.translation;
+      const updatedRecord = {
+        ...record,
+        source: result.source,
+        translations: {
+          ...(record.translations || {}),
+          [result.target]: result.translation,
+        },
+      };
+      const rendered = renderRecord(updatedRecord);
 
       let outputMessage = record.outputMessageId
         ? await channel.messages.fetch(record.outputMessageId).catch(() => null)
@@ -180,16 +186,17 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
 
       if (outputMessage) {
         await outputMessage.edit({
-          content: renderRecord(record),
+          content: rendered,
           allowedMentions: { parse: [] },
         });
       } else {
         outputMessage = await channel.send({
-          content: renderRecord(record),
+          content: rendered,
           allowedMentions: { parse: [] },
         });
-        record.outputMessageId = outputMessage.id;
       }
+
+      Object.assign(record, updatedRecord, { outputMessageId: outputMessage.id });
       saveHistory();
 
       if (!record.deletedAt && canDelete) {
