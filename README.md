@@ -94,6 +94,49 @@ with one, two, and three speakers before changing the concurrency values.
 - `TRANSLATOR=openai` + `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`
   - local Ollama: `LLM_BASE_URL=http://localhost:11434/v1`, `LLM_MODEL=<model you pulled>`, `LLM_API_KEY=ollama`
 
+## Optional overlay relay (friends can use the overlay without Discord RPC)
+
+The overlay keeps its original Discord RPC reader. In its settings, choose one of:
+- **Discord** — existing Discord desktop IPC/RPC connection (default).
+- **Relay** — receives live transcripts directly from the PC running the voice bot. Friends do not need Discord RPC credentials.
+- **Both** — listens to both sources and suppresses duplicates when both carry the same Discord message ID.
+
+The relay is optional. Without `OVERLAY_RELAY_TOKENS`, the bot disables it and the existing Discord channel posting continues normally.
+
+### Host setup
+
+1. Copy `.env.example` to `.env` as usual.
+2. Generate one random token per person (run once for each person):
+   ```powershell
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   ```
+3. Add the credentials to the host's private `.env` file. Use unique labels and never commit or post these values:
+   ```env
+   OVERLAY_RELAY_PORT=8765
+   OVERLAY_RELAY_TOKENS=owner:YOUR_64_CHARACTER_TOKEN,friend1:THEIR_64_CHARACTER_TOKEN
+   ```
+4. Start the voice bot. It listens only on `127.0.0.1:8765`; it is not exposed directly to the internet.
+5. To test from outside your PC, install Cloudflare Tunnel and run a Quick Tunnel:
+   ```powershell
+   cloudflared tunnel --url http://127.0.0.1:8765
+   ```
+   Use the generated HTTPS hostname as a WebSocket URL by changing `https://` to `wss://` and adding `/overlay`, for example `wss://YOUR-HOST.trycloudflare.com/overlay`.
+   Keep the tunnel terminal running while friends connect. A Quick Tunnel hostname is temporary and can change when restarted.
+
+### Friend setup
+
+1. Open overlay settings and choose **Relay**.
+2. Paste the `wss://.../overlay` URL and that friend's personal token.
+3. Save. The overlay encrypts the token with Windows secure storage; it is not displayed again.
+4. Select the languages they want to display as usual.
+
+### Revoking access
+
+Remove that person's `label:token` entry from `OVERLAY_RELAY_TOKENS` in the host's `.env`, then restart the voice bot. Their token will no longer authenticate. Give each person a different token; do not reuse one shared credential.
+
+The relay forwards only transcript text and display metadata, not voice audio. The local health endpoint is `http://127.0.0.1:8765/health`. For remote use, always use the secure `wss://` URL; the overlay permits plain `ws://` only for loopback testing.
+
+
 ## Privacy
 The bot processes everyone's voice in the channel. Tell your friends. Audio is kept in memory only and
 never written to disk unless you turn on `RECORD_WAV`.
