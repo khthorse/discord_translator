@@ -227,8 +227,11 @@ function saveRelayConfig(next) {
     if (!['ws:', 'wss:'].includes(parsed.protocol) || parsed.pathname !== '/overlay') {
       throw new Error('Relay URL must use ws:// or wss:// and end in /overlay.');
     }
-    if (token.length < 32) {
+    if (token && token.length < 32) {
       throw new Error('Relay access token must be at least 32 characters.');
+    }
+    if (!token && !relayConfig.encryptedToken) {
+      throw new Error('Enter your personal relay access token.');
     }
     if (!safeStorage.isEncryptionAvailable()) {
       throw new Error('Windows secure storage is unavailable. Relay credentials were not saved.');
