@@ -1008,13 +1008,13 @@ async function handleUtterance(session, userId, pcm) {
   const sourceChannelId = sourceLanguage
     && getLanguageChannelId(session.guild.id, sourceLanguage);
 
+  let sourceMessageId = '';
+
   if (sourceChannelId) {
     const sourceChannel = await getGuildTextChannel(
       session.guild,
       sourceChannelId,
     );
-
-    let sourceMessageId = '';
 
     if (sourceChannel) {
       const sentMessage = await sendBotMessage(
@@ -1023,16 +1023,17 @@ async function handleUtterance(session, userId, pcm) {
       );
       sourceMessageId = sentMessage?.id || '';
     }
-
-    broadcastOverlayMessage({
-      language: sourceLanguage,
-      channelName: sourceLanguage.toUpperCase(),
-      flag: languageFlag(sourceLanguage),
-      author: name,
-      content: result.original,
-      messageId: sourceMessageId,
-    });
   }
+
+  // Relay the original even if no Discord text channel is mapped for it.
+  broadcastOverlayMessage({
+    language: sourceLanguage,
+    channelName: sourceLanguage.toUpperCase(),
+    flag: languageFlag(sourceLanguage),
+    author: name,
+    content: result.original,
+    messageId: sourceMessageId,
+  });
 
   // Send each enabled translation to its own language channel.
   for (const [targetLanguage, translatedText] of Object.entries(translations)) {
