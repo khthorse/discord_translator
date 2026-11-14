@@ -5,3 +5,4 @@ numpy
 scipy
 httpx
 python-dotenv
+langid
