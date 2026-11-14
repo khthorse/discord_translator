@@ -144,17 +144,27 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
   }
 
   channelRecords.sort((a, b) => b.timestamp - a.timestamp);
-  const selected = [];
+  const pending = [];
   for (const record of channelRecords) {
-    if (selected.length >= count) break;
+    if (pending.length >= count) break;
     if (!record.content?.trim()) continue;
     try {
-      // Detection and translation are combined by the service. We may have to
-      // call it to learn the default target before checking the archived target set.
+      // Detect source and resolve the standard-pair direction before checking
+      // whether this target was already translated in an earlier invocation.
       const result = await requestTranslation(record.content, requestedTarget, pair, serviceUrl);
-      if (!result.translation) continue;
-      if (record.translations?.[result.target]) continue;
+      if (!result.translation || record.translations?.[result.target]) continue;
+      pending.push({ record, result });
+    } catch (err) {
+      console.error(`Recent translation failed for message ${record.id}:`, err);
+    }
+  }
 
+  // Discord output is created oldest-first, even though history was scanned
+  // newest-first to find the most recent eligible messages.
+  pending.reverse();
+  const selected = [];
+  for (const { record, result } of pending) {
+    try {
       record.source = result.source;
       record.translations ??= {};
       record.translations[result.target] = result.translation;
@@ -187,11 +197,9 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
       }
       selected.push(record);
     } catch (err) {
-      console.error(`Recent translation failed for message ${record.id}:`, err);
+      console.error(`Could not publish translation for message ${record.id}:`, err);
     }
   }
-
-  selected.reverse();
   if (channelRecords.length > MAX_HISTORY_PER_CHANNEL) {
     history[channel.id] = channelRecords.slice(-MAX_HISTORY_PER_CHANNEL);
   }
