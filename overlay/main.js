@@ -9,6 +9,19 @@ const {
 const net = require('node:net');
 const path = require('node:path');
 const fs = require('node:fs');
+const { safeStorage } = require('electron');
+
+const relayConfigPath = path.join(app.getPath('userData'), 'relay-config.json');
+let relayConfig = {
+  mode: 'discord',
+  url: '',
+  encryptedToken: null
+};
+let relaySocket = null;
+let relayReconnectTimer = null;
+let relayReconnectAttempts = 0;
+const recentMessageIds = new Map();
+
 
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
@@ -167,6 +180,215 @@ function sendStatus(text, type = 'info') {
   console.log(`[${type.toUpperCase()}] ${text}`);
 }
 
+/* Optional WebSocket relay */
+
+function readRelayConfig() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(relayConfigPath, 'utf8'));
+    const mode = ['discord', 'relay', 'both'].includes(saved.mode)
+      ? saved.mode
+      : 'discord';
+
+    relayConfig = {
+      mode,
+      url: typeof saved.url === 'string' ? saved.url : '',
+      encryptedToken: typeof saved.encryptedToken === 'string'
+        ? saved.encryptedToken
+        : null
+    };
+  } catch {
+    relayConfig = { mode: 'discord', url: '', encryptedToken: null };
+  }
+}
+
+function getRelayToken() {
+  if (!relayConfig.encryptedToken || !safeStorage.isEncryptionAvailable()) return '';
+  try {
+    return safeStorage.decryptString(Buffer.from(relayConfig.encryptedToken, 'base64'));
+  } catch {
+    return '';
+  }
+}
+
+function saveRelayConfig(next) {
+  const mode = ['discord', 'relay', 'both'].includes(next?.mode)
+    ? next.mode
+    : 'discord';
+  const url = String(next?.url || '').trim();
+  const token = String(next?.token || '').trim();
+
+  if (mode !== 'discord') {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error('Enter a valid relay WebSocket URL.');
+    }
+    if (!['ws:', 'wss:'].includes(parsed.protocol) || parsed.pathname !== '/overlay') {
+      throw new Error('Relay URL must use ws:// or wss:// and end in /overlay.');
+    }
+    if (token.length < 32) {
+      throw new Error('Relay access token must be at least 32 characters.');
+    }
+    if (!safeStorage.isEncryptionAvailable()) {
+      throw new Error('Windows secure storage is unavailable. Relay credentials were not saved.');
+    }
+  }
+
+  const encryptedToken = token
+    ? safeStorage.encryptString(token).toString('base64')
+    : relayConfig.encryptedToken;
+
+  const saved = { mode, url, encryptedToken };
+  fs.writeFileSync(relayConfigPath, JSON.stringify(saved, null, 2), { mode: 0o600 });
+  relayConfig = saved;
+  return { mode, url, hasToken: Boolean(encryptedToken) };
+}
+
+function shouldUseDiscord() {
+  return relayConfig.mode === 'discord' || relayConfig.mode === 'both';
+}
+
+function shouldUseRelay() {
+  return relayConfig.mode === 'relay' || relayConfig.mode === 'both';
+}
+
+function rememberMessage(messageId) {
+  if (!messageId) return false;
+  const now = Date.now();
+
+  for (const [id, timestamp] of recentMessageIds) {
+    if (now - timestamp > 120000) recentMessageIds.delete(id);
+  }
+
+  if (recentMessageIds.has(messageId)) return true;
+  recentMessageIds.set(messageId, now);
+
+  while (recentMessageIds.size > 500) {
+    recentMessageIds.delete(recentMessageIds.keys().next().value);
+  }
+
+  return false;
+}
+
+function publishIncomingMessage(data) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!data || typeof data !== 'object') return;
+  if (rememberMessage(String(data.messageId || ''))) return;
+
+  mainWindow.webContents.send('rpc:message', {
+    language: String(data.language || 'unknown'),
+    channelName: String(data.channelName || 'Translations'),
+    flag: String(data.flag || '🌐'),
+    author: String(data.author || 'Unknown'),
+    content: String(data.content || ''),
+    timestamp: data.timestamp || new Date().toISOString(),
+    messageId: String(data.messageId || '')
+  });
+}
+
+function stopRelayConnection() {
+  clearTimeout(relayReconnectTimer);
+  relayReconnectTimer = null;
+
+  if (relaySocket) {
+    const current = relaySocket;
+    relaySocket = null;
+    try { current.close(); } catch {}
+  }
+}
+
+function scheduleRelayReconnect() {
+  if (relayReconnectTimer || app.isQuitting || !shouldUseRelay()) return;
+
+  const delay = Math.min(1000 * Math.pow(2, relayReconnectAttempts), 15000);
+  relayReconnectAttempts++;
+  sendStatus(`Relay disconnected. Reconnecting in ${Math.ceil(delay / 1000)} seconds...`, 'error');
+
+  relayReconnectTimer = setTimeout(() => {
+    relayReconnectTimer = null;
+    connectRelay();
+  }, delay);
+}
+
+function connectRelay() {
+  if (!shouldUseRelay()) return;
+
+  const token = getRelayToken();
+  if (!relayConfig.url || !token) {
+    sendStatus('Relay mode needs a relay URL and saved access token in Settings.', 'error');
+    return;
+  }
+
+  if (relaySocket && (relaySocket.readyState === WebSocket.OPEN || relaySocket.readyState === WebSocket.CONNECTING)) return;
+
+  let ws;
+  try {
+    ws = new WebSocket(relayConfig.url);
+  } catch (error) {
+    sendStatus(`Could not start relay connection: ${error.message}`, 'error');
+    scheduleRelayReconnect();
+    return;
+  }
+
+  relaySocket = ws;
+
+  ws.addEventListener('open', () => {
+    if (relaySocket !== ws) return;
+    ws.send(JSON.stringify({ type: 'authenticate', token }));
+  });
+
+  ws.addEventListener('message', event => {
+    if (relaySocket !== ws) return;
+
+    let packet;
+    try { packet = JSON.parse(String(event.data)); } catch { return; }
+
+    if (packet.type === 'ready') {
+      relayReconnectAttempts = 0;
+      sendStatus('Connected to Wookie relay.', 'success');
+      return;
+    }
+
+    if (packet.type === 'message') {
+      publishIncomingMessage(packet.data);
+    }
+  });
+
+  ws.addEventListener('close', () => {
+    if (relaySocket !== ws) return;
+    relaySocket = null;
+    if (!app.isQuitting) scheduleRelayReconnect();
+  });
+
+  ws.addEventListener('error', () => {
+    if (relaySocket === ws) {
+      sendStatus('Relay connection error. Check the relay URL and tunnel.', 'error');
+    }
+  });
+}
+
+function restartConnections() {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+  stopRelayConnection();
+
+  if (socket && !socket.destroyed) socket.destroy();
+  socket = null;
+  connected = false;
+  authenticated = false;
+  authorizeNonce = null;
+
+  if (shouldUseDiscord()) connectDiscord();
+  if (shouldUseRelay()) connectRelay();
+
+  if (relayConfig.mode === 'relay') {
+    sendStatus('Using relay connection only.');
+  } else if (relayConfig.mode === 'both') {
+    sendStatus('Listening to Discord and relay (duplicate messages are filtered).');
+  }
+}
+
 /* Discord RPC */
 
 function sendPacket(opcode, data) {
@@ -229,13 +451,9 @@ async function exchangeCode(code) {
 }
 
 function publishMessage(channelId, message) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const channel = CHANNELS.find(item => item.id === channelId);
 
-  const channel = CHANNELS.find(
-    item => item.id === channelId
-  );
-
-  mainWindow.webContents.send('rpc:message', {
+  publishIncomingMessage({
     channelId,
     language: channel?.code || 'unknown',
     channelName: channel?.name || 'Discord',
@@ -390,7 +608,7 @@ function scheduleReconnect() {
   }, delay);
 }
 
-function connect() {
+function connectDiscord() {
   if (!CLIENT_ID || !CLIENT_SECRET) {
     sendStatus(
       'Missing DISCORD_CLIENT_ID or DISCORD_CLIENT_SECRET.',
@@ -505,6 +723,11 @@ function connect() {
   }
 
   tryPipe();
+}
+
+function connect() {
+  if (shouldUseDiscord()) connectDiscord();
+  if (shouldUseRelay()) connectRelay();
 }
 
 /* Display mode */
@@ -919,6 +1142,22 @@ function createWindow() {
     mainWindow = null;
   });
 }
+
+ipcMain.handle('overlay:get-relay-config', () => ({
+  mode: relayConfig.mode,
+  url: relayConfig.url,
+  hasToken: Boolean(relayConfig.encryptedToken)
+}));
+
+ipcMain.handle('overlay:save-relay-config', (_event, next) => {
+  try {
+    const result = saveRelayConfig(next);
+    restartConnections();
+    return { ok: true, ...result };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
 
 /* IPC */
 
