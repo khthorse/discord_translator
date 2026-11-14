@@ -50,6 +50,8 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel, Field
+import langid
 from fastapi.concurrency import run_in_threadpool
 from faster_whisper import WhisperModel
 from scipy.signal import resample_poly
@@ -287,6 +289,46 @@ async def process_endpoint(
         translate_from.strip().lower(),
         translate,
     )
+
+
+class TextTranslationRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+    target: str | None = None
+    pair: list[str] = Field(min_length=2, max_length=2)
+
+
+@app.post("/translate-text")
+async def translate_text_endpoint(payload: TextTranslationRequest):
+    text = payload.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text cannot be empty")
+
+    # langid returns a two-letter ISO code; the configured pair decides
+    # the default direction, while an explicit target overrides that choice.
+    source, confidence = langid.classify(text)
+    pair = [code.strip().lower() for code in payload.pair]
+    if source == pair[0]:
+        default_target = pair[1]
+    elif source == pair[1]:
+        default_target = pair[0]
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Detected {source}, which is outside the server's standard pair ({pair[0]}, {pair[1]}). Choose a target language explicitly.",
+        )
+
+    target = (payload.target or default_target).strip().lower()
+    if target == source:
+        return {"source": source, "target": target, "translation": text}
+
+    translated = await run_in_threadpool(translator.translate, text, source, target)
+    if not translated:
+        raise HTTPException(
+            status_code=503,
+            detail="No translation backend is configured or the backend returned no translation. Set TRANSLATOR in .env.",
+        )
+
+    return {"source": source, "target": target, "translation": translated}
 
 
 @app.get("/health")
