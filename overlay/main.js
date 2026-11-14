@@ -1266,6 +1266,7 @@ app.on('before-quit', () => {
   app.isQuitting = true;
 
   clearTimeout(reconnectTimer);
+  stopRelayConnection();
   clearTimeout(savePositionTimer);
   clearTimeout(resizeFeedbackTimer);
 
