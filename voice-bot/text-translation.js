@@ -153,9 +153,18 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
   for (const record of channelRecords) {
     if (pending.length >= count) break;
     if (!record.content?.trim()) continue;
+    if (requestedTarget && record.translations?.[requestedTarget]) continue;
+    if (!requestedTarget && record.source) {
+      const knownTarget = record.source === pair[0]
+        ? pair[1]
+        : record.source === pair[1]
+          ? pair[0]
+          : null;
+      if (knownTarget && record.translations?.[knownTarget]) continue;
+    }
     try {
-      // Detect source and resolve the standard-pair direction before checking
-      // whether this target was already translated in an earlier invocation.
+      // Detect source and resolve the standard-pair direction for records
+      // that have not yet been translated to this target.
       const result = await requestTranslation(record.content, requestedTarget, pair, serviceUrl);
       if (!result.translation || record.translations?.[result.target]) continue;
       pending.push({ record, result });
