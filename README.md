@@ -12,10 +12,10 @@ service/     Python. Audio in -> faster-whisper -> translator -> text out.
 
 ## 1. Create the Discord bot
 1. https://discord.com/developers/applications -> New Application.
-2. Bot tab -> Reset Token -> copy it into `.env` as `DISCORD_TOKEN`. No privileged intents are needed.
+2. Bot tab -> Reset Token -> copy it into `.env` as `DISCORD_TOKEN`. Under **Privileged Gateway Intents**, enable **Message Content Intent** so `/translate recent` can read text in the current channel.
 3. General Information -> copy the Application ID into `.env` as `DISCORD_CLIENT_ID`.
 4. Discord: User Settings -> Advanced -> Developer Mode on. Right-click your server -> Copy Server ID -> `DISCORD_GUILD_ID`.
-5. OAuth2 -> URL Generator -> scopes `bot` + `applications.commands`; permissions: View Channels, Send Messages, Connect.
+5. OAuth2 -> URL Generator -> scopes `bot` + `applications.commands`; permissions: View Channels, Send Messages, Read Message History, Manage Messages, Connect, Speak.
    Open the generated URL to invite the bot.
 
 ## 2. Configure
@@ -49,6 +49,20 @@ In Discord, create `#english`, `#español`, and `#live-translations`. Give the b
 Run `/join` in `#live-translations` after joining a voice channel. `/leave` disconnects the bot.
 
 The two language rooms receive speech in that language, whether it was spoken originally or translated from the other language. `#live-translations` keeps the combined format: translation first, original underneath. Language mappings are saved in `voice-bot/language-channels.json` and survive bot restarts.
+
+## Text and chat translation
+
+- `/translate text text:<your text>` posts the original and its translation publicly in the channel. The server's standard pair chooses the opposite language automatically.
+- `/translate text text:<your text> language:<target>` overrides the default target for that request.
+- `/translate recent` translates the newest eligible human message in the current channel.
+- `/translate recent count:5` translates up to five eligible messages. The bot scans newest-first to find them, then publishes the results oldest-first.
+- `/translate recent count:5 language:de` uses an explicit target language.
+
+Server admins configure the default pair with `/language standard set first:en second:es`, and view it with `/language standard list`. The pair is bidirectional: English is translated to Spanish and Spanish to English. Setting the pair also enables both as translation targets. Additional override targets can be enabled with `/language target add`.
+
+Recent-message translation requires **View Channel**, **Read Message History**, **Send Messages**, and **Manage Messages** in the channel. After the replacement is successfully posted, the bot deletes the original message when it has Manage Messages permission. If it lacks that permission, it leaves the original in place and reports that it could not remove it. Bot-authored messages are skipped.
+
+The bot stores original message text, translation targets, and replacement-message IDs in `voice-bot/translation-history.json`. This lets later `/translate recent` runs skip messages already translated to the same target and add another target to the existing replacement post without repeating the original. Keep this file with the bot's data and back it up if you need the history to survive moving machines.
 
 To add another language room later, use `/language-channel set` with its language code and text channel. `/language-channel list` shows mappings; `/language-channel remove` removes one. These commands require the Discord **Manage Server** permission.
 
