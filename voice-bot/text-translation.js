@@ -136,7 +136,7 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
   // Read recent human messages. The durable archive also contains messages
   // removed after earlier successful translations.
   let before;
-  for (let pageNumber = 0; pageNumber < 5; pageNumber++) {
+  for (let pageNumber = 0; pageNumber < 20; pageNumber++) {
     const page = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
     if (!page.size) break;
     before = page.last().id;
