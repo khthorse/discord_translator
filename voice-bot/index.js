@@ -691,6 +691,13 @@ async function onLanguage(interaction) {
   }
 
   if (action === 'remove') {
+    if (group === 'target' && settings.standardLanguages.includes(language)) {
+      return interaction.reply({
+        content: `**${language}** is part of the standard pair. Change `/language standard set` before removing it as a target.`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
     if (!languages.includes(language)) {
       return interaction.reply({
         content: `**${language}** is not enabled for ${group} languages.`,
