@@ -761,22 +761,26 @@ async function onLiveChannel(interaction) {
 function startListening(session) {
   const receiver = session.connection.receiver;
 
-  receiver.speaking.on('start', (userId) => {
+  receiver.speaking.on('start', async (userId) => {
     if (session.active.has(userId)) return;
     session.active.add(userId);
 
-    captureUtterance(receiver, userId, (pcm) => {
-      // Enqueue each completed chunk immediately, even while this speaker
-      // continues talking. Per-speaker queues preserve the original order.
-      enqueueUtterance(session, userId, pcm);
-    })
-      .then(() => {
-        session.active.delete(userId);
-      })
-      .catch((err) => {
-        session.active.delete(userId);
-        console.error(`Capture failed for ${userId}:`, err.message);
+    try {
+      // Discord bot accounts (music bots, moderation bots, etc.) should never
+      // enter speech recognition or translation.
+      const member = await session.guild.members.fetch(userId).catch(() => null);
+      if (member?.user?.bot) return;
+
+      await captureUtterance(receiver, userId, (pcm) => {
+        // Enqueue each completed chunk immediately, even while this speaker
+        // continues talking. Per-speaker queues preserve the original order.
+        enqueueUtterance(session, userId, pcm);
       });
+    } catch (err) {
+      console.error(`Capture failed for ${userId}:`, err.message);
+    } finally {
+      session.active.delete(userId);
+    }
   });
 }
 
