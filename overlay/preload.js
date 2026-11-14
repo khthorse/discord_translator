@@ -1,6 +1,14 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('wookie', {
+  getRelayConfig() {
+    return ipcRenderer.invoke('overlay:get-relay-config');
+  },
+
+  saveRelayConfig(config) {
+    return ipcRenderer.invoke('overlay:save-relay-config', config);
+  },
+
   onMessage(callback) {
     ipcRenderer.on('rpc:message', (_event, message) => {
       callback(message);
