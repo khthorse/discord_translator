@@ -51,7 +51,9 @@ function renderRecord(record) {
   for (const [target, translated] of Object.entries(record.translations || {})) {
     parts.push('', `**Translation (${languageName(target)})**`, escapeMarkdown(translated));
   }
-  return parts.join('\n').slice(0, 1950);
+  const rendered = parts.join('\n');
+  if (rendered.length > 1950) throw new Error('This message and its translation exceed Discord’s safe message length; the original was left in place.');
+  return rendered;
 }
 
 function ensureRecord(channelRecords, message) {
@@ -98,7 +100,10 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
       '',
       `**Translation (${languageName(result.target)})**`,
       escapeMarkdown(result.translation),
-    ].join('\n').slice(0, 1950);
+    ].join('\n');
+    if (output.length > 1950) {
+      throw new Error('That text and its translation are too long for one Discord post. Try a shorter text.');
+    }
     return interaction.editReply({ content: output, allowedMentions: { parse: [] } });
   }
 
