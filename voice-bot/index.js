@@ -17,6 +17,7 @@ import {
 } from '@discordjs/voice';
 import prism from 'prism-media';
 import { pcmToWav } from './wav.js';
+import { broadcastOverlayMessage, startOverlayRelay, stopOverlayRelay } from './overlay-relay.js';
 
 // ---------------------------------------------------------------- config ---
 const {
@@ -59,6 +60,8 @@ const languageChannelsFile = new URL('./language-channels.json', import.meta.url
 const guildLanguagesFile = new URL('./guild-languages.json', import.meta.url);
 
 if (recordWav) fs.mkdirSync('recordings', { recursive: true });
+
+startOverlayRelay();
 
 // -------------------------------------------------------------- state ---
 
@@ -1011,12 +1014,24 @@ async function handleUtterance(session, userId, pcm) {
       sourceChannelId,
     );
 
+    let sourceMessageId = '';
+
     if (sourceChannel) {
-      await sendBotMessage(
+      const sentMessage = await sendBotMessage(
         sourceChannel,
         `**${languageFlag(sourceLanguage)} ${escapeMarkdown(name)}:** ${escapeMarkdown(result.original)}`,
       );
+      sourceMessageId = sentMessage?.id || '';
     }
+
+    broadcastOverlayMessage({
+      language: sourceLanguage,
+      channelName: sourceLanguage.toUpperCase(),
+      flag: languageFlag(sourceLanguage),
+      author: name,
+      content: result.original,
+      messageId: sourceMessageId,
+    });
   }
 
   // Send each enabled translation to its own language channel.
@@ -1029,19 +1044,31 @@ async function handleUtterance(session, userId, pcm) {
       targetLanguage,
     );
 
-    if (!targetChannelId) continue;
+    let targetMessageId = '';
 
-    const targetChannel = await getGuildTextChannel(
-      session.guild,
-      targetChannelId,
-    );
-
-    if (targetChannel) {
-      await sendBotMessage(
-        targetChannel,
-        `**${languageFlag(targetLanguage)} ${escapeMarkdown(name)}:** ${escapeMarkdown(translatedText)}`,
+    if (targetChannelId) {
+      const targetChannel = await getGuildTextChannel(
+        session.guild,
+        targetChannelId,
       );
+
+      if (targetChannel) {
+        const sentMessage = await sendBotMessage(
+          targetChannel,
+          `**${languageFlag(targetLanguage)} ${escapeMarkdown(name)}:** ${escapeMarkdown(translatedText)}`,
+        );
+        targetMessageId = sentMessage?.id || '';
+      }
     }
+
+    broadcastOverlayMessage({
+      language: targetLanguage,
+      channelName: targetLanguage.toUpperCase(),
+      flag: languageFlag(targetLanguage),
+      author: name,
+      content: translatedText,
+      messageId: targetMessageId,
+    });
   }
 
  
@@ -1086,6 +1113,7 @@ process.on('SIGINT', () => {
     session.connection.destroy();
   }
 
+  stopOverlayRelay();
   client.destroy();
   process.exit(0);
 });
