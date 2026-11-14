@@ -312,10 +312,12 @@ async def translate_text_endpoint(payload: TextTranslationRequest):
     elif source == pair[1]:
         default_target = pair[0]
     else:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Detected {source}, which is outside the server's standard pair ({pair[0]}, {pair[1]}). Choose a target language explicitly.",
-        )
+        if not payload.target:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Detected {source}, which is outside the server's standard pair ({pair[0]}, {pair[1]}). Choose a target language explicitly.",
+            )
+        default_target = None
 
     target = (payload.target or default_target).strip().lower()
     if target == source:
