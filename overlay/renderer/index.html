@@ -103,6 +103,39 @@
 
       </div>
 
+      <div class="settings-section-title">CONNECTION SOURCE</div>
+
+      <div class="setting-group">
+        <label for="connectionMode">MESSAGE SOURCE</label>
+        <select id="connectionMode">
+          <option value="discord">Discord (existing)</option>
+          <option value="relay">Relay (friends)</option>
+          <option value="both">Both (test / deduplicate)</option>
+        </select>
+        <p class="settings-description">
+          Discord keeps using the Discord desktop app. Relay receives messages from the host PC.
+          Both listens to both and filters matching Discord message IDs.
+        </p>
+      </div>
+
+      <div class="setting-group">
+        <label for="relayUrl">RELAY WEBSOCKET URL</label>
+        <input id="relayUrl" type="url" placeholder="wss://your-tunnel.example/overlay">
+      </div>
+
+      <div class="setting-group">
+        <label for="relayToken">PERSONAL RELAY ACCESS TOKEN</label>
+        <input id="relayToken" type="password" autocomplete="off" placeholder="Paste your private token">
+        <p id="relayCredentialStatus" class="settings-description">
+          Token is stored using Windows secure storage and is never shown again.
+        </p>
+      </div>
+
+      <div class="setting-group">
+        <button id="saveRelaySettingsButton" class="reset-button">SAVE CONNECTION SETTINGS</button>
+        <p id="relaySettingsStatus" class="settings-description" aria-live="polite"></p>
+      </div>
+
       <div class="setting-group">
 
         <label>TRANSLATION LANGUAGES</label>
