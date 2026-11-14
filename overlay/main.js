@@ -224,8 +224,12 @@ function saveRelayConfig(next) {
     } catch {
       throw new Error('Enter a valid relay WebSocket URL.');
     }
-    if (!['ws:', 'wss:'].includes(parsed.protocol) || parsed.pathname !== '/overlay') {
-      throw new Error('Relay URL must use ws:// or wss:// and end in /overlay.');
+    const isLoopback = ['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname);
+    if (
+      (parsed.protocol !== 'wss:' && !(parsed.protocol === 'ws:' && isLoopback)) ||
+      parsed.pathname !== '/overlay'
+    ) {
+      throw new Error('Use a secure wss:// relay URL. Plain ws:// is allowed only for localhost testing, and the path must end in /overlay.');
     }
     if (token && token.length < 32) {
       throw new Error('Relay access token must be at least 32 characters.');
