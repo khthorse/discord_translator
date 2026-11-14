@@ -60,7 +60,7 @@ The two language rooms receive speech in that language, whether it was spoken or
 
 Server admins configure the default pair with `/language standard set first:en second:es`, and view it with `/language standard list`. The pair is bidirectional: English is translated to Spanish and Spanish to English. Setting the pair also enables both as translation targets. Additional override targets can be enabled with `/language target add`.
 
-Recent-message translation requires **View Channel**, **Read Message History**, **Send Messages**, and **Manage Messages** in the channel. After the replacement is successfully posted, the bot deletes the original message when it has Manage Messages permission. If it lacks that permission, it leaves the original in place and reports that it could not remove it. Bot-authored messages are skipped.
+Recent-message translation requires **View Channel**, **Read Message History**, and **Send Messages** in the channel. **Manage Messages** is additionally needed to delete originals after their replacements are successfully posted. Without it, the bot still posts translations but leaves originals in place and reports the missing permission. Bot-authored messages are skipped.
 
 The bot stores original message text, translation targets, and replacement-message IDs in `voice-bot/translation-history.json`. This lets later `/translate recent` runs skip messages already translated to the same target and add another target to the existing replacement post without repeating the original. Keep this file with the bot's data and back it up if you need the history to survive moving machines.
 
