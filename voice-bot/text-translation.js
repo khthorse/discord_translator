@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { MessageFlags, escapeMarkdown } from 'discord.js';
+import { PermissionFlagsBits, MessageFlags, escapeMarkdown } from 'discord.js';
 
 const historyFile = fileURLToPath(new URL('./translation-history.json', import.meta.url));
 const MAX_HISTORY_PER_CHANNEL = 2000;
@@ -12,170 +12,197 @@ function loadHistory() {
     return {};
   }
 }
-
 let history = loadHistory();
 
 function saveHistory() {
-  fs.writeFileSync(historyFile, JSON.stringify(history, null, 2) + '\n');
+  const temporaryFile = `${historyFile}.tmp`;
+  fs.writeFileSync(temporaryFile, JSON.stringify(history, null, 2) + '\n');
+  fs.renameSync(temporaryFile, historyFile);
 }
 
-function languageName(code) {
-  const names = { en: 'English', es: 'Spanish', no: 'Norwegian', nn: 'Norwegian Nynorsk',
-    sv: 'Swedish', da: 'Danish', de: 'German', fr: 'French', it: 'Italian',
-    pt: 'Portuguese', nl: 'Dutch', pl: 'Polish', ru: 'Russian', uk: 'Ukrainian',
-    tr: 'Turkish', ar: 'Arabic', ja: 'Japanese', ko: 'Korean', zh: 'Chinese' };
-  return names[code] || code.toUpperCase();
-}
+const LANGUAGE_NAMES = {
+  en: 'English', es: 'Spanish', no: 'Norwegian Bokmål', nn: 'Norwegian Nynorsk',
+  sv: 'Swedish', da: 'Danish', fi: 'Finnish', de: 'German', fr: 'French',
+  it: 'Italian', pt: 'Portuguese', nl: 'Dutch', pl: 'Polish', ru: 'Russian',
+  uk: 'Ukrainian', tr: 'Turkish', ar: 'Arabic', ja: 'Japanese', ko: 'Korean', zh: 'Chinese',
+};
+const languageName = code => LANGUAGE_NAMES[code] || String(code).toUpperCase();
 
-async function translateText(text, target, pair, serviceUrl) {
+async function requestTranslation(text, target, pair, serviceUrl) {
   const response = await fetch(`${serviceUrl}/translate-text`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, target: target || null, pair }),
     signal: AbortSignal.timeout(90000),
   });
-  if (!response.ok) throw new Error(`translation service returned HTTP ${response.status}: ${await response.text()}`);
+  if (!response.ok) {
+    let detail = await response.text();
+    try { detail = JSON.parse(detail).detail || detail; } catch {}
+    throw new Error(String(detail).slice(0, 500));
+  }
   return response.json();
 }
 
-function defaultPair(settings) {
-  const pair = settings.standardLanguages;
-  return Array.isArray(pair) && pair.length === 2 ? pair : ['en', 'es'];
+function renderRecord(record) {
+  const parts = [
+    `**${escapeMarkdown(record.author)} · Original (${languageName(record.source)})**`,
+    escapeMarkdown(record.content),
+  ];
+  for (const [target, translated] of Object.entries(record.translations || {})) {
+    parts.push('', `**Translation (${languageName(target)})**`, escapeMarkdown(translated));
+  }
+  return parts.join('\n').slice(0, 1950);
 }
 
-function outputContent(author, original, translated, source, target) {
-  return [
-    `**${escapeMarkdown(author)} · Original (${languageName(source)})**`,
-    escapeMarkdown(original),
-    '',
-    `**Translation (${languageName(target)})**`,
-    escapeMarkdown(translated),
-  ].join('\n').slice(0, 1950);
+function ensureRecord(channelRecords, message) {
+  let record = channelRecords.find(item => item.id === message.id);
+  if (!record) {
+    record = {
+      id: message.id,
+      author: message.member?.displayName || message.author.globalName || message.author.username,
+      content: message.content,
+      timestamp: message.createdTimestamp,
+      source: null,
+      translations: {},
+      outputMessageId: null,
+      deletedAt: null,
+    };
+    channelRecords.push(record);
+  }
+  return record;
 }
 
 export async function handleTranslateInteraction(interaction, getGuildSettings, serviceUrl) {
-  const subcommand = interaction.options.getSubcommand();
   const settings = getGuildSettings(interaction.guildId);
-  const pair = defaultPair(settings);
+  const pair = settings.standardLanguages?.length === 2
+    ? settings.standardLanguages
+    : ['en', 'es'];
+  const subcommand = interaction.options.getSubcommand();
+  const requestedTarget = interaction.options.getString('language');
+
+  if (requestedTarget && !settings.targetLanguages.includes(requestedTarget)) {
+    return interaction.reply({
+      content: `The server has not enabled ${languageName(requestedTarget)} as a target. Ask an admin to use /language target add.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
 
   if (subcommand === 'text') {
     const text = interaction.options.getString('text', true).trim();
-    const requestedTarget = interaction.options.getString('language');
-    if (requestedTarget && !settings.targetLanguages.includes(requestedTarget)) {
-      return interaction.reply({
-        content: `The server has not enabled ${languageName(requestedTarget)} as a target. Ask an admin to use /language target add.`,
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
     await interaction.deferReply();
-    const result = await translateText(text, requestedTarget, pair, serviceUrl);
-    if (!result.translation) throw new Error('The translation service did not return a translation. Check that TRANSLATOR is configured.');
-    const posted = await interaction.channel.send({
-      content: outputContent(interaction.user.username, text, result.translation, result.source, result.target),
-      allowedMentions: { parse: [] },
-    });
-    return interaction.editReply(`Posted the ${languageName(result.source)} → ${languageName(result.target)} translation: ${posted.url}`);
+    const result = await requestTranslation(text, requestedTarget, pair, serviceUrl);
+    if (!result.translation) throw new Error('The translation backend returned an empty result.');
+    const output = [
+      `**${escapeMarkdown(interaction.user.globalName || interaction.user.username)} · Original (${languageName(result.source)})**`,
+      escapeMarkdown(text),
+      '',
+      `**Translation (${languageName(result.target)})**`,
+      escapeMarkdown(result.translation),
+    ].join('\n').slice(0, 1950);
+    return interaction.editReply({ content: output, allowedMentions: { parse: [] } });
   }
 
-  if (subcommand === 'recent') {
-    const count = interaction.options.getInteger('count') ?? 1;
-    const requestedTarget = interaction.options.getString('language');
-    if (requestedTarget && !settings.targetLanguages.includes(requestedTarget)) {
-      return interaction.reply({
-        content: `The server has not enabled ${languageName(requestedTarget)} as a target. Ask an admin to use /language target add.`,
-        flags: MessageFlags.Ephemeral,
-      });
+  if (subcommand !== 'recent') return;
+
+  const count = interaction.options.getInteger('count') ?? 1;
+  const channel = interaction.channel;
+  if (!channel?.messages || !channel.isTextBased?.()) {
+    return interaction.reply({ content: 'This command needs a server text channel.', flags: MessageFlags.Ephemeral });
+  }
+
+  const permissions = channel.permissionsFor(interaction.guild.members.me);
+  const missing = [
+    [PermissionFlagsBits.ViewChannel, 'View Channel'],
+    [PermissionFlagsBits.ReadMessageHistory, 'Read Message History'],
+    [PermissionFlagsBits.SendMessages, 'Send Messages'],
+  ].filter(([flag]) => !permissions?.has(flag)).map(([, label]) => label);
+  if (missing.length) {
+    return interaction.reply({
+      content: `I need these permissions in this channel: ${missing.join(', ')}.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  const canDelete = permissions.has(PermissionFlagsBits.ManageMessages);
+
+  await interaction.deferReply();
+  const channelRecords = history[channel.id] ?? [];
+  history[channel.id] = channelRecords;
+
+  // Read recent human messages. The durable archive also contains messages
+  // removed after earlier successful translations.
+  let before;
+  for (let pageNumber = 0; pageNumber < 5; pageNumber++) {
+    const page = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
+    if (!page.size) break;
+    before = page.last().id;
+    for (const message of page.values()) {
+      if (message.author.bot || !message.content?.trim()) continue;
+      if (message.content.startsWith('/') || message.content.startsWith('!')) continue;
+      ensureRecord(channelRecords, message);
     }
-    if (!interaction.channel?.messages) {
-      return interaction.reply({ content: 'This command needs a normal text channel.', flags: MessageFlags.Ephemeral });
-    }
+    if (page.size < 100) break;
+  }
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const channelId = interaction.channelId;
-    history[channelId] ??= [];
-    const records = history[channelId];
-    const byId = new Map(records.map(record => [record.id, record]));
+  channelRecords.sort((a, b) => b.timestamp - a.timestamp);
+  const selected = [];
+  for (const record of channelRecords) {
+    if (selected.length >= count) break;
+    if (!record.content?.trim()) continue;
+    try {
+      // Detection and translation are combined by the service. We may have to
+      // call it to learn the default target before checking the archived target set.
+      const result = await requestTranslation(record.content, requestedTarget, pair, serviceUrl);
+      if (!result.translation) continue;
+      if (record.translations?.[result.target]) continue;
 
-    // Fetch enough recent history to cover the requested number, including
-    // messages already translated and deleted (kept in the local archive).
-    let before;
-    let scanned = 0;
-    while (scanned < 500 && records.filter(record => !record.deletedAt).length < count + 30) {
-      const page = await interaction.channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
-      if (!page.size) break;
-      scanned += page.size;
-      before = page.last().id;
-      for (const message of page.values()) {
-        if (message.author.bot || !message.content?.trim() || message.content.startsWith('/')) continue;
-        if (byId.has(message.id)) continue;
-        const record = {
-          id: message.id,
-          author: message.member?.displayName || message.author.username,
-          content: message.content,
-          timestamp: message.createdTimestamp,
-          translatedTargets: [],
-          deletedAt: null,
-        };
-        records.push(record);
-        byId.set(record.id, record);
-      }
-      if (page.size < 100) break;
-    }
+      record.source = result.source;
+      record.translations ??= {};
+      record.translations[result.target] = result.translation;
 
-    records.sort((a, b) => a.timestamp - b.timestamp);
-    const candidates = records.filter(record => {
-      if (!record.content?.trim()) return false;
-      if (requestedTarget) return !record.translatedTargets.includes(requestedTarget);
-      return true;
-    }).slice(-Math.min(count, 50));
+      let outputMessage = record.outputMessageId
+        ? await channel.messages.fetch(record.outputMessageId).catch(() => null)
+        : null;
 
-    if (!candidates.length) {
-      return interaction.editReply('No eligible untranslated messages were found.');
-    }
-
-    let postedCount = 0;
-    let failedCount = 0;
-    for (const record of candidates) {
-      try {
-        const result = await translateText(record.content, requestedTarget, pair, serviceUrl);
-        if (!result.translation) throw new Error('Empty translation result');
-
-        const target = result.target;
-        if (record.translatedTargets.includes(target)) continue;
-
-        const posted = await interaction.channel.send({
-          content: outputContent(record.author, record.content, result.translation, result.source, target),
+      if (outputMessage) {
+        await outputMessage.edit({
+          content: renderRecord(record),
           allowedMentions: { parse: [] },
         });
-
-        record.translatedTargets.push(target);
-        record.lastTranslationMessageId = posted.id;
-        saveHistory();
-
-        if (!record.deletedAt) {
-          const original = await interaction.channel.messages.fetch(record.id).catch(() => null);
-          if (original) {
-            await original.delete();
-            record.deletedAt = Date.now();
-            saveHistory();
-          }
-        }
-        postedCount++;
-      } catch (err) {
-        failedCount++;
-        console.error(`Recent-message translation failed for ${record.id}:`, err);
+      } else {
+        outputMessage = await channel.send({
+          content: renderRecord(record),
+          allowedMentions: { parse: [] },
+        });
+        record.outputMessageId = outputMessage.id;
       }
-    }
-
-    // Keep a bounded archive per channel; preserve the most recent records.
-    if (records.length > MAX_HISTORY_PER_CHANNEL) {
-      history[channelId] = records.slice(-MAX_HISTORY_PER_CHANNEL);
       saveHistory();
-    }
 
-    return interaction.editReply(
-      `Translated and posted ${postedCount} message(s) in chronological order.${failedCount ? ` ${failedCount} failed; their originals were left untouched.` : ''}`,
-    );
+      if (!record.deletedAt && canDelete) {
+        const original = await channel.messages.fetch(record.id).catch(() => null);
+        if (original) {
+          await original.delete();
+          record.deletedAt = Date.now();
+          saveHistory();
+        }
+      }
+      selected.push(record);
+    } catch (err) {
+      console.error(`Recent translation failed for message ${record.id}:`, err);
+    }
   }
+
+  selected.reverse();
+  if (channelRecords.length > MAX_HISTORY_PER_CHANNEL) {
+    history[channel.id] = channelRecords.slice(-MAX_HISTORY_PER_CHANNEL);
+  }
+  saveHistory();
+
+  const deletionNote = canDelete
+    ? ' Originals are removed after their replacement is posted.'
+    : ' I could not remove originals because I need Manage Messages permission.';
+  return interaction.editReply(
+    selected.length
+      ? `Posted ${selected.length} translation(s) in chronological order.${deletionNote}`
+      : 'No eligible untranslated messages were found. Originals were left unchanged.',
+  );
 }
