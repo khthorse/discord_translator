@@ -250,7 +250,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
   } catch (err) {
     console.error(err);
 
-    const msg = 'Something went wrong. Check the bot console.';
+    const msg = interaction.commandName === 'translate'
+      ? `Translation failed: ${String(err.message || 'unknown error').slice(0, 500)}`
+      : 'Something went wrong. Check the bot console.';
 
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(msg);
