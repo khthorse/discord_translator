@@ -115,7 +115,8 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
     return interaction.reply({ content: 'This command needs a server text channel.', flags: MessageFlags.Ephemeral });
   }
 
-  const permissions = channel.permissionsFor(interaction.guild.members.me);
+  const botMember = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
+  const permissions = channel.permissionsFor(botMember);
   const missing = [
     [PermissionFlagsBits.ViewChannel, 'View Channel'],
     [PermissionFlagsBits.ReadMessageHistory, 'Read Message History'],
