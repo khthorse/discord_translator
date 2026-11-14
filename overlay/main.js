@@ -595,7 +595,7 @@ async function handleMessage(message) {
 /* Discord reconnect */
 
 function scheduleReconnect() {
-  if (reconnectTimer || app.isQuitting) return;
+  if (reconnectTimer || app.isQuitting || !shouldUseDiscord()) return;
 
   const delay = Math.min(
     1000 * Math.pow(2, reconnectAttempts),
@@ -1248,6 +1248,7 @@ ipcMain.on('overlay:set-settings-open', (_event, open) => {
 /* App lifecycle */
 
 app.whenReady().then(() => {
+  readRelayConfig();
   createWindow();
 
   globalShortcut.register(
