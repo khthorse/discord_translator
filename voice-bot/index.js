@@ -18,6 +18,7 @@ import {
 import prism from 'prism-media';
 import { pcmToWav } from './wav.js';
 import { broadcastOverlayMessage, startOverlayRelay, stopOverlayRelay } from './overlay-relay.js';
+import { handleTranslateInteraction } from './text-translation.js';
 
 // ---------------------------------------------------------------- config ---
 const {
@@ -103,6 +104,7 @@ function defaultGuildSettings() {
   return {
     inputLanguages: ['en', 'es'],
     targetLanguages: ['en', 'es'],
+    standardLanguages: ['en', 'es'],
     liveLanguages: ['en', 'es'],
     liveChannelId: null,
   };
@@ -119,6 +121,7 @@ function getGuildSettings(guildId) {
   // Fill in missing properties when loading older configuration files.
   settings.inputLanguages ??= ['en', 'es'];
   settings.targetLanguages ??= ['en', 'es'];
+  settings.standardLanguages ??= ['en', 'es'];
   settings.liveLanguages ??= ['en', 'es'];
   settings.liveChannelId ??= null;
 
@@ -213,7 +216,12 @@ async function getGuildTextChannel(guild, channelId) {
 // -------------------------------------------------------------- Discord ---
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
 client.once(Events.ClientReady, (c) => {
@@ -236,6 +244,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await onLanguage(interaction);
     } else if (interaction.commandName === 'live-channel') {
       await onLiveChannel(interaction);
+    } else if (interaction.commandName === 'translate') {
+      await handleTranslateInteraction(interaction, getGuildSettings, SERVICE_URL);
     }
   } catch (err) {
     console.error(err);
@@ -592,6 +602,34 @@ async function onLanguage(interaction) {
     : interaction.options.getString('language', true).toLowerCase();
 
   const settings = getGuildSettings(interaction.guildId);
+
+  if (group === 'standard') {
+    if (action === 'list') {
+      return interaction.reply({
+        content: `Standard translation pair: **${settings.standardLanguages[0]} ↔ ${settings.standardLanguages[1]}**`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    const first = interaction.options.getString('first', true).toLowerCase();
+    const second = interaction.options.getString('second', true).toLowerCase();
+    if (first === second) {
+      return interaction.reply({
+        content: 'Choose two different languages for the standard pair.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    settings.standardLanguages = [first, second];
+    for (const code of settings.standardLanguages) {
+      if (!settings.targetLanguages.includes(code)) settings.targetLanguages.push(code);
+    }
+    saveGuildLanguageSettings();
+    return interaction.reply({
+      content: `Standard pair set to **${first} ↔ ${second}**. Both languages are enabled as translation targets.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
 
   const propertyByGroup = {
     input: 'inputLanguages',
