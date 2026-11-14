@@ -168,6 +168,7 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
   // newest-first to find the most recent eligible messages.
   pending.reverse();
   const selected = [];
+  let deletionFailures = 0;
   for (const { record, result } of pending) {
     try {
       const updatedRecord = {
@@ -202,10 +203,17 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
       if (!record.deletedAt && canDelete) {
         const original = await channel.messages.fetch(record.id).catch(() => null);
         if (original) {
-          await original.delete();
+          try {
+            await original.delete();
+            record.deletedAt = Date.now();
+          } catch (deleteError) {
+            deletionFailures++;
+            console.error(`Could not delete original ${record.id}:`, deleteError);
+          }
+        } else {
           record.deletedAt = Date.now();
-          saveHistory();
         }
+        saveHistory();
       }
       selected.push(record);
     } catch (err) {
@@ -217,9 +225,11 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
   }
   saveHistory();
 
-  const deletionNote = canDelete
-    ? ' Originals are removed after their replacement is posted.'
-    : ' I could not remove originals because I need Manage Messages permission.';
+  const deletionNote = !canDelete
+    ? ' I could not remove originals because I need Manage Messages permission.'
+    : deletionFailures
+      ? ` ${deletionFailures} original message(s) could not be deleted; check the bot's channel permissions.`
+      : ' Originals were removed after their replacement was posted.';
   return interaction.editReply(
     selected.length
       ? `Posted ${selected.length} translation(s) in chronological order.${deletionNote}`
