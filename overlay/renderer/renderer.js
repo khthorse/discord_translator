@@ -32,6 +32,13 @@ const minimizeButton = document.getElementById('minimizeButton');
 const resetWindowSizesButton =
   document.getElementById('resetWindowSizesButton');
 
+const connectionModeSelect = document.getElementById('connectionMode');
+const relayUrlInput = document.getElementById('relayUrl');
+const relayTokenInput = document.getElementById('relayToken');
+const saveRelaySettingsButton = document.getElementById('saveRelaySettingsButton');
+const relayCredentialStatus = document.getElementById('relayCredentialStatus');
+const relaySettingsStatus = document.getElementById('relaySettingsStatus');
+
 const languageEn = document.getElementById('languageEn');
 const languageEs = document.getElementById('languageEs');
 
@@ -628,6 +635,51 @@ hudModeButton.addEventListener('click', () => {
 subtitleModeButton.addEventListener('click', () => {
   setMode('subtitle');
 });
+
+/* Connection source settings */
+
+async function loadRelaySettings() {
+  try {
+    const config = await window.wookie.getRelayConfig();
+    connectionModeSelect.value = config.mode || 'discord';
+    relayUrlInput.value = config.url || '';
+    relayCredentialStatus.textContent = config.hasToken
+      ? 'A personal token is saved securely. Leave the token field empty to keep using it.'
+      : 'No token saved yet. Each friend needs their own private token.';
+  } catch (error) {
+    relaySettingsStatus.textContent = `Could not load relay settings: ${error.message}`;
+  }
+}
+
+saveRelaySettingsButton.addEventListener('click', async () => {
+  saveRelaySettingsButton.disabled = true;
+  relaySettingsStatus.textContent = 'Saving connection settings...';
+
+  try {
+    const result = await window.wookie.saveRelayConfig({
+      mode: connectionModeSelect.value,
+      url: relayUrlInput.value,
+      token: relayTokenInput.value
+    });
+
+    if (!result.ok) {
+      relaySettingsStatus.textContent = result.error || 'Could not save settings.';
+      return;
+    }
+
+    relayTokenInput.value = '';
+    relayCredentialStatus.textContent = result.hasToken
+      ? 'Personal token saved securely.'
+      : 'No relay token saved.';
+    relaySettingsStatus.textContent = 'Saved. Connection mode updated.';
+  } catch (error) {
+    relaySettingsStatus.textContent = `Could not save settings: ${error.message}`;
+  } finally {
+    saveRelaySettingsButton.disabled = false;
+  }
+});
+
+void loadRelaySettings();
 
 /* Language filters */
 
