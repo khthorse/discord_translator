@@ -9,3 +9,8 @@ tokens.txt
 service/models/
 voice-bot/guild-languages.json
 voice-bot/translation-history.json
+
+# Local Python environments
+.venv/
+venv/
+service/wookie-translator/
