@@ -176,62 +176,137 @@ export async function handleTranslateInteraction(interaction, getGuildSettings, 
     }
   }
 
-  // Discord output is created oldest-first, even though history was scanned
-  // newest-first to find the most recent eligible messages.
-  pending.reverse();
-  const selected = [];
-  let deletionFailures = 0;
+  // Keep all translation posts in original-message chronological order.
+  // Discord cannot move an existing message, so reuse the existing bot-post
+  // positions: edit those posts to contain the earliest records, then append
+  // only the remaining records. This avoids deleting/reposting the whole archive.
+  const pendingById = new Map();
   for (const { record, result } of pending) {
-    try {
-      const updatedRecord = {
-        ...record,
-        source: result.source,
-        translations: {
-          ...(record.translations || {}),
-          [result.target]: result.translation,
-        },
-      };
-      const rendered = renderRecord(updatedRecord);
+    pendingById.set(record.id, {
+      ...record,
+      source: result.source,
+      translations: {
+        ...(record.translations || {}),
+        [result.target]: result.translation,
+      },
+    });
+  }
 
-      let outputMessage = record.outputMessageId
-        ? await channel.messages.fetch(record.outputMessageId).catch(() => null)
-        : null;
+  const desiredRecords = channelRecords
+    .map(record => pendingById.get(record.id) || record)
+    .filter(record => Object.keys(record.translations || {}).length > 0)
+    .sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id));
 
-      if (outputMessage) {
-        await outputMessage.edit({
-          content: rendered,
-          allowedMentions: { parse: [] },
-        });
-      } else {
-        outputMessage = await channel.send({
-          content: rendered,
-          allowedMentions: { parse: [] },
-        });
-      }
+  const outputIds = [...new Set(
+    channelRecords.map(record => record.outputMessageId).filter(Boolean),
+  )];
+  const outputSlots = [];
+  for (const id of outputIds) {
+    const message = await channel.messages.fetch(id).catch(() => null);
+    if (message) outputSlots.push(message);
+  }
+  // These messages already occupy their positions in the channel. Reassign
+  // their contents from oldest to newest, then create any additional posts.
+  outputSlots.sort(
+    (a, b) => a.createdTimestamp - b.createdTimestamp || a.id.localeCompare(b.id),
+  );
 
-      Object.assign(record, updatedRecord, { outputMessageId: outputMessage.id });
-      saveHistory();
+  const newSlots = [];
+  try {
+    for (let i = outputSlots.length; i < desiredRecords.length; i++) {
+      newSlots.push(await channel.send({
+        content: renderRecord(desiredRecords[i]),
+        allowedMentions: { parse: [] },
+      }));
+    }
+  } catch (err) {
+    for (const message of newSlots) {
+      await message.delete().catch(deleteError =>
+        console.error('Could not clean up a partially posted translation:', deleteError),
+      );
+    }
+    console.error('Could not create the reordered translation posts:', err);
+    return interaction.editReply(
+      'Could not publish the reordered translations. Originals were left unchanged; please try again.',
+    );
+  }
 
-      if (!record.deletedAt && canDelete) {
-        const original = await channel.messages.fetch(record.id).catch(() => null);
-        if (original) {
-          try {
-            await original.delete();
-            record.deletedAt = Date.now();
-          } catch (deleteError) {
-            deletionFailures++;
-            console.error(`Could not delete original ${record.id}:`, deleteError);
-          }
-        } else {
+  const editedSlots = [];
+  try {
+    for (let i = 0; i < Math.min(outputSlots.length, desiredRecords.length); i++) {
+      const message = outputSlots[i];
+      const rendered = renderRecord(desiredRecords[i]);
+      if (message.content === rendered) continue;
+
+      editedSlots.push({ message, previousContent: message.content });
+      await message.edit({
+        content: rendered,
+        allowedMentions: { parse: [] },
+      });
+    }
+  } catch (err) {
+    for (const edit of editedSlots.reverse()) {
+      await edit.message.edit({
+        content: edit.previousContent,
+        allowedMentions: { parse: [] },
+      }).catch(rollbackError =>
+        console.error('Could not roll back a translation post edit:', rollbackError),
+      );
+    }
+    for (const message of newSlots) {
+      await message.delete().catch(deleteError =>
+        console.error('Could not clean up a partially posted translation:', deleteError),
+      );
+    }
+    console.error('Could not reorder the existing translation posts:', err);
+    return interaction.editReply(
+      'Could not reorder the translation posts. Originals were left unchanged; please try again.',
+    );
+  }
+
+  // If the archive contains fewer records than existing bot posts, remove
+  // the surplus posts only after all replacement content has been published.
+  for (const message of outputSlots.slice(desiredRecords.length)) {
+    await message.delete().catch(err =>
+      console.error('Could not delete a surplus translation post:', err),
+    );
+  }
+
+  // Persist the new record-to-post mapping after every desired post exists.
+  const selected = [];
+  for (let i = 0; i < desiredRecords.length; i++) {
+    const slot = i < outputSlots.length
+      ? outputSlots[i]
+      : newSlots[i - outputSlots.length];
+    const record = channelRecords.find(item => item.id === desiredRecords[i].id);
+    Object.assign(record, desiredRecords[i], { outputMessageId: slot.id });
+  }
+  for (const { record } of pending) {
+    const savedRecord = channelRecords.find(item => item.id === record.id);
+    if (savedRecord) selected.push(savedRecord);
+  }
+  saveHistory();
+
+  // Delete originals only after the complete reordered set is safely posted.
+  let deletionFailures = 0;
+  if (canDelete) {
+    for (const record of selected) {
+      if (record.deletedAt) continue;
+      const original = await channel.messages.fetch(record.id).catch(() => null);
+      if (original) {
+        try {
+          await original.delete();
           record.deletedAt = Date.now();
+        } catch (deleteError) {
+          deletionFailures++;
+          console.error('Could not delete original ' + record.id + ':', deleteError);
         }
-        saveHistory();
+      } else {
+        record.deletedAt = Date.now();
       }
-      selected.push(record);
-    } catch (err) {
-      console.error(`Could not publish translation for message ${record.id}:`, err);
     }
   }
+  saveHistory();
   if (channelRecords.length > MAX_HISTORY_PER_CHANNEL) {
     history[channel.id] = channelRecords.slice(-MAX_HISTORY_PER_CHANNEL);
   }
