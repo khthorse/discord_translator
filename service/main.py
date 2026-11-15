@@ -53,6 +53,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 import langid
+from langid.langid import LanguageIdentifier, model
 from fastapi.concurrency import run_in_threadpool
 from faster_whisper import WhisperModel
 from scipy.signal import resample_poly
@@ -301,8 +302,8 @@ class TextTranslationRequest(BaseModel):
 @lru_cache(maxsize=32)
 def get_pair_language_identifier(pair: tuple[str, str]):
     """Return a language detector restricted to one configured language pair."""
-    identifier = langid.LanguageIdentifier.from_modelstring(
-        langid.model,
+    identifier = LanguageIdentifier.from_modelstring(
+        model,
         norm_probs=True,
     )
     identifier.set_languages(list(pair))
