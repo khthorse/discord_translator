@@ -6,3 +6,8 @@ scipy
 httpx
 python-dotenv
 langid
+
+# NVIDIA CUDA 12 GPU runtime
+nvidia-cuda-runtime-cu12==12.9.79
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cudnn-cu12==9.28.1.4

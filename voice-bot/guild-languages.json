@@ -8,13 +8,16 @@
     ],
     "targetLanguages": [
       "en",
-      "es",
-      "no"
+      "es"
     ],
     "liveLanguages": [
       "en",
       "es"
     ],
-    "liveChannelId": "1569427583978709094"
+    "liveChannelId": "1569427583978709094",
+    "standardLanguages": [
+      "en",
+      "es"
+    ]
   }
 }
