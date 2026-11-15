@@ -5,6 +5,7 @@ translates it, and returns JSON. Run with: python main.py
 
 import io
 import math
+from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import sysconfig
@@ -297,16 +298,33 @@ class TextTranslationRequest(BaseModel):
     pair: list[str] = Field(min_length=2, max_length=2)
 
 
+@lru_cache(maxsize=32)
+def get_pair_language_identifier(pair: tuple[str, str]):
+    """Return a language detector restricted to one configured language pair."""
+    identifier = langid.LanguageIdentifier.from_modelstring(
+        langid.model,
+        norm_probs=True,
+    )
+    identifier.set_languages(list(pair))
+    return identifier
+
+
 @app.post("/translate-text")
 async def translate_text_endpoint(payload: TextTranslationRequest):
     text = payload.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="text cannot be empty")
 
-    # langid returns a two-letter ISO code; the configured pair decides
-    # the default direction, while an explicit target overrides that choice.
-    source, confidence = langid.classify(text)
-    pair = [code.strip().lower() for code in payload.pair]
+    pair = tuple(code.strip().lower() for code in payload.pair)
+
+    # Without an explicit target, detect only within the server's standard
+    # pair. With an explicit target, retain unrestricted detection so other
+    # source languages (for example Italian) can still be translated.
+    if payload.target:
+        source, confidence = langid.classify(text)
+    else:
+        source, confidence = get_pair_language_identifier(pair).classify(text)
+    pair = list(pair)
     if source == pair[0]:
         default_target = pair[1]
     elif source == pair[1]:
