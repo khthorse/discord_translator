@@ -1,156 +1,444 @@
-# Discord voice translator (Spanish <-> English)
+# Discord Voice Translator
 
-```
-voice-bot/   JavaScript. Joins voice, captures each speaker, posts subtitles in a text channel.
-service/     Python. Audio in -> faster-whisper -> translator -> text out.
-```
+A Discord bot that listens to human speakers in a voice channel, transcribes speech with
+[faster-whisper](https://github.com/SYSTRAN/faster-whisper), translates it, and publishes
+the results to public Discord text channels. The repository also includes an optional
+desktop subtitle overlay.
+
+## What is included
+
+- **`service/`** — Python FastAPI service for speech recognition and text/audio translation.
+- **`voice-bot/`** — Discord.js bot that captures voice audio, sends it to the Python service,
+  and posts public results.
+- **`overlay/`** — Optional Electron desktop overlay. It can read messages through Discord
+  desktop RPC or receive them through the bot's authenticated relay.
+
+The default language pair is English (`en`) and Spanish (`es`). Server admins can change
+the language configuration with slash commands.
 
 ## Requirements
-- Node.js 22.12 or newer
-- Python 3.11 or 3.12 (newer versions may lack wheels for some dependencies)
-- NVIDIA driver + CUDA 12 / cuDNN 9 libraries for GPU Whisper (or set `WHISPER_DEVICE=cpu`)
 
-## 1. Create the Discord bot
-1. https://discord.com/developers/applications -> New Application.
-2. Bot tab -> Reset Token -> copy it into `.env` as `DISCORD_TOKEN`. Under **Privileged Gateway Intents**, enable **Message Content Intent** so `/translate recent` can read text in the current channel.
-3. General Information -> copy the Application ID into `.env` as `DISCORD_CLIENT_ID`.
-4. Discord: User Settings -> Advanced -> Developer Mode on. Right-click your server -> Copy Server ID -> `DISCORD_GUILD_ID`.
-5. OAuth2 -> URL Generator -> scopes `bot` + `applications.commands`; permissions: View Channels, Send Messages, Read Message History, Manage Messages, Connect, Speak.
-   Open the generated URL to invite the bot.
+- Windows 10/11 (the commands below use PowerShell).
+- Node.js **22.12 or newer**.
+- Python **3.11** recommended (64-bit).
+- Git.
+- A Discord application and bot account.
+- For GPU Whisper: a supported NVIDIA GPU and a current NVIDIA driver. The Python
+  requirements install the pinned CUDA 12 runtime/cuDNN packages used by this project.
+- For local LLM translation: [Ollama](https://ollama.com/) and a model already pulled.
+- Optional overlay: Discord desktop app. For remote overlay relay connections, install
+  [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
 
-## 2. Configure
-Copy `.env.example` to `.env` and fill in the three Discord values. Leave `TRANSLATOR=none` for the first transcription test. To actually translate English/Spanish, choose `google` with a Google API key or `openai` with a working OpenAI-compatible endpoint.
+## 1. Get the project
 
-## 3. Start the Python service
+Open PowerShell and clone the repository, or update an existing clone:
+
+```powershell
+git clone https://github.com/khthorse/discord_translator.git
+cd discord_translator
 ```
+
+If you already have the project:
+
+```powershell
+cd C:\path\to\discord_translator
+git pull
+```
+
+Use the branch you intend to run if it is not the repository's default branch.
+
+## 2. Create the Discord bot
+
+1. Open the [Discord Developer Portal](https://discord.com/developers/applications) and create an application.
+2. Open **Bot**, create/reset the bot token, and copy it. Keep it private.
+3. Under **Privileged Gateway Intents**, enable **Message Content Intent**. The bot uses this
+   for `/translate recent`.
+4. Under **General Information**, copy the **Application ID**.
+5. In Discord, enable **Developer Mode** under User Settings → Advanced, then right-click
+   your server and copy its **Server ID**.
+6. Under **OAuth2 → URL Generator**, select the `bot` and `applications.commands` scopes.
+   Grant the bot these permissions:
+   - View Channels
+   - Send Messages
+   - Read Message History
+   - Manage Messages
+   - Connect
+   - Speak
+7. Open the generated invite URL and add the bot to your server.
+
+The bot needs View Channel and Send Messages in each output channel. It also needs Connect
+and Speak for the voice channel. Read Message History and Manage Messages are used by
+`/translate recent` and the `/leave` cleanup.
+
+## 3. Configure the shared environment file
+
+Both the Python service and the Discord bot load one **project-root** file named `.env`.
+Create it beside this README (not inside `service/` or `voice-bot/`).
+
+Example for local Ollama translation:
+
+```env
+# Discord bot (required)
+DISCORD_TOKEN=YOUR_DISCORD_BOT_TOKEN
+DISCORD_CLIENT_ID=YOUR_DISCORD_APPLICATION_ID
+DISCORD_GUILD_ID=YOUR_DISCORD_SERVER_ID
+
+# Python service
+SERVICE_URL=http://127.0.0.1:8000
+SERVICE_HOST=127.0.0.1
+SERVICE_PORT=8000
+
+# Whisper: defaults to NVIDIA GPU
+WHISPER_MODEL=large-v3-turbo
+WHISPER_DEVICE=cuda
+WHISPER_COMPUTE=float16
+
+# Translation: none, google, or openai
+TRANSLATOR=openai
+LLM_BASE_URL=http://localhost:11434
+LLM_MODEL=YOUR_OLLAMA_MODEL_NAME
+
+# Voice bot tuning (these are also the built-in defaults)
+MAX_CONCURRENT_UTTERANCES=3
+SILENCE_MS=700
+MIN_UTTERANCE_MS=500
+MAX_UTTERANCE_MS=8000
+SEGMENT_SEARCH_MS=1200
+SEGMENT_MIN_MS=4000
+SEGMENT_QUIET_RMS=700
+SHOW_ORIGINAL=true
+RECORD_WAV=false
+MESSAGE_DELETE_SECONDS=300
+
+# Optional overlay relay (leave empty to disable it)
+# OVERLAY_RELAY_PORT=8765
+# OVERLAY_RELAY_TOKENS=owner:YOUR_64_CHARACTER_TOKEN
+```
+
+Do not add quotes around ordinary values. Never commit or share `.env`: it contains bot
+credentials and possibly API keys. The repository's `.gitignore` excludes it.
+
+### Choose a translation backend
+
+Set exactly one backend using `TRANSLATOR`:
+
+- **Transcription only:** `TRANSLATOR=none`. Whisper recognizes speech, but no translated
+  text is produced. This is a good first test.
+- **Google Cloud Translation:** `TRANSLATOR=google` and set `GOOGLE_API_KEY=...`.
+- **Ollama or another supported OpenAI-compatible service:** `TRANSLATOR=openai`,
+  `LLM_MODEL=...`, and `LLM_BASE_URL=...`. This project currently sends requests to
+  the Ollama-style `/api/chat` endpoint. For local Ollama, the default base URL is
+  `http://localhost:11434` (do not append `/v1`).
+
+For Ollama, start the Ollama application/service and make sure the model named by
+`LLM_MODEL` has been downloaded before starting the Python service. For example, use
+`ollama pull YOUR_MODEL_NAME` in a separate terminal.
+
+## 4. Set up and start the Python service
+
+Open a PowerShell window at the project root:
+
+```powershell
 cd service
-python -m venv .venv
-.venv\Scripts\activate          (Linux/macOS: source .venv/bin/activate)
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 python main.py
 ```
-The first start downloads the Whisper model (about 1.5 GB).
-GPU libraries on Windows: if it complains about cublas/cudnn, run
-`pip install nvidia-cublas-cu12 nvidia-cudnn-cu12` (check the faster-whisper README for the exact
-versions it currently needs). `main.py` adds those DLL folders automatically.
 
-## 4. Start the bot
+Keep this window open. On first start, faster-whisper downloads the selected model if it
+is not already cached. The default model is `large-v3-turbo`.
+
+If PowerShell blocks activation, run this once in that PowerShell window and retry activation:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
 ```
+
+You should see a startup message similar to:
+
+```text
+Loading Whisper model 'large-v3-turbo' on cuda (float16)...
+Translator: OpenAICompatTranslator
+Uvicorn running on http://127.0.0.1:8000
+```
+
+Check that the service responds by opening **http://127.0.0.1:8000/health** in a browser.
+The health endpoint reports the loaded model, translator, and concurrency settings.
+
+### Optional: run Whisper on the CPU instead
+
+The service supports CPU Whisper without changing application code. In the root `.env`,
+change:
+
+```env
+WHISPER_DEVICE=cpu
+WHISPER_COMPUTE=int8
+```
+
+Restart the Python service for the setting to take effect. To return to the GPU defaults:
+
+```env
+WHISPER_DEVICE=cuda
+WHISPER_COMPUTE=float16
+```
+
+Ollama is configured separately through `LLM_BASE_URL` and `LLM_MODEL`; changing the
+Whisper device does not move Ollama off its configured device. Compare timings under the
+same workload before deciding which setup is faster on your hardware.
+
+## 5. Install and start the Discord bot
+
+Open a **second** PowerShell window at the project root:
+
+```powershell
 cd voice-bot
 npm install
-npm run register      (once)
+npm run register
 npm start
 ```
-In Discord, create `#english`, `#español`, and `#live-translations`. Give the bot View Channel + Send Messages in all three channels. Then, as a server admin, configure:
-```
+
+Run `npm run register` once after configuring the Discord IDs, and again whenever slash
+commands are changed. It registers the commands for the server specified by
+`DISCORD_GUILD_ID`. Keep this terminal open while using the bot.
+
+The bot and Python service must both be running. The bot sends audio to
+`SERVICE_URL`, which defaults to `http://127.0.0.1:8000`.
+
+## 6. Configure Discord channels and start translating
+
+Create the text channels you want to use. For example:
+
+- `#english` — English speech and English translations.
+- `#español` — Spanish speech and Spanish translations.
+- `#live-translations` — combined live feed.
+
+As a server admin, map language codes to their public output channels:
+
+```text
 /language-channel set language:en channel:#english
 /language-channel set language:es channel:#español
+/live-channel set channel:#live-translations
 ```
-Run `/join` in `#live-translations` after joining a voice channel. `/leave` disconnects the bot.
 
-The two language rooms receive speech in that language, whether it was spoken originally or translated from the other language. `#live-translations` keeps the combined format: translation first, original underneath. Language mappings are saved in `voice-bot/language-channels.json` and survive bot restarts.
+Join a Discord voice channel, then run `/join` in a server text channel. The bot joins your
+voice channel and starts listening. Run `/leave` when finished.
 
-## Text and chat translation
+### How live voice output works
 
-- `/translate text text:<your text>` posts the original and its translation publicly in the channel. The server's standard pair chooses the opposite language automatically.
-- `/translate text text:<your text> language:<target>` overrides the default target for that request.
-- `/translate recent` translates the newest eligible human message in the current channel.
-- `/translate recent count:5` translates up to five eligible messages. The bot scans newest-first to find them, then publishes the results oldest-first.
-- `/translate recent count:5 language:de` uses an explicit target language.
+- Speech is recognized from human members. **Bot accounts are ignored** and are not sent
+  through speech recognition or translation.
+- The language-specific channels receive speech in that language, whether it was spoken
+  originally or translated from another enabled input language.
+- The combined live channel shows the selected translations, with the translation first
+  and the original underneath.
+- Audio chunks from the same speaking turn are accumulated into the turn's message rather
+  than creating a separate Discord message for every chunk. A new speaker turn gets a new
+  message; different speakers' turns are published in capture order.
+- Long turns may continue in another Discord message to stay within Discord's message-size
+  limit.
 
-Server admins configure the default pair with `/language standard set first:en second:es`, and view it with `/language standard list`. The pair is bidirectional: English is translated to Spanish and Spanish to English. Setting the pair also enables both as translation targets. Additional override targets can be enabled with `/language target add`.
+The default input, target, standard-pair, and live languages are English and Spanish.
+Server admins can change them with the commands below.
 
-Recent-message translation requires **View Channel**, **Read Message History**, and **Send Messages** in the channel. **Manage Messages** is additionally needed to delete originals after their replacements are successfully posted. Without it, the bot still posts translations but leaves originals in place and reports the missing permission. Bot-authored messages are skipped.
+## 7. Language and channel commands
 
-The bot stores original message text, translation targets, and replacement-message IDs in `voice-bot/translation-history.json`. This lets later `/translate recent` runs skip messages already translated to the same target and add another target to the existing replacement post without repeating the original. Keep this file with the bot's data and back it up if you need the history to survive moving machines.
+These configuration commands require the Discord **Manage Server** permission.
 
-To add another language room later, use `/language-channel set` with its language code and text channel. `/language-channel list` shows mappings; `/language-channel remove` removes one. These commands require the Discord **Manage Server** permission.
+| Command | Purpose |
+|---|---|
+| `/language standard set first:en second:es` | Set the bidirectional default pair used by text translation. |
+| `/language standard list` | Show the standard pair. |
+| `/language input list` | List languages Whisper is allowed to recognize. |
+| `/language input add language:no` | Add a recognized input language. |
+| `/language input remove language:no` | Remove an input language. At least one must remain. |
+| `/language target list` | List translation targets. |
+| `/language target add language:de` | Add a translation target. |
+| `/language target remove language:de` | Remove a target (the standard pair cannot be removed until the pair is changed). |
+| `/language live list` | List languages included in the combined live feed. |
+| `/language live add language:de` | Include an enabled target language in the live feed. |
+| `/language live remove language:de` | Remove a language from the live feed. |
+| `/language-channel list` | Show language-to-channel mappings. |
+| `/language-channel set language:en channel:#english` | Set the public channel for a language. |
+| `/language-channel remove language:en` | Remove a language channel mapping. |
+| `/live-channel show` | Show the combined live channel. |
+| `/live-channel set channel:#live-translations` | Set the combined live channel. |
+| `/live-channel remove` | Disable the combined live feed. |
 
-Bot subtitle messages are automatically deleted after `MESSAGE_DELETE_SECONDS` (default 300 seconds / 5 minutes). Set it to `0` to disable. Only messages sent by the bot are scheduled for deletion; user messages are never touched. Pending deletion timers are in memory, so a bot restart cancels timers for messages already sent.
+A language must be enabled as a target before it can be added to the combined live feed.
+Changing the standard pair also enables both languages as translation targets.
 
-## First test (no translation)
-Set `RECORD_WAV=true` and `TRANSLATOR=none`, talk, and check:
-1. `voice-bot/recordings/*.wav` sound right (proves capture and decryption work),
-2. the Python console prints what Whisper heard,
-3. the transcript shows up in the text channel.
-Then switch `RECORD_WAV` back to `false`.
+## 8. Text and recent-message translation
 
-## Live processing and latency
+The bot also provides public text translation commands:
 
-The voice bot processes audio chunks from different speakers concurrently while keeping each
-speaker's chunks in order. During continuous speech, it emits a chunk every `MAX_UTTERANCE_MS`
-without ending the Discord audio stream; the final shorter chunk is flushed after silence.
-The Python service separately limits simultaneous Whisper jobs to avoid overloading the GPU.
+- `/translate text text:Hello there` — translate using the standard pair and publish
+  the original and translation in the channel.
+- `/translate text text:Hello there language:de` — explicitly choose a target language.
+- `/translate recent` — translate the newest eligible human-authored message in the
+  current channel.
+- `/translate recent count:5` — translate up to five eligible messages, publishing
+  results oldest-first.
+- `/translate recent count:5 language:de` — choose an explicit target language.
 
-- `MAX_CONCURRENT_UTTERANCES=3` controls active audio-chunk pipelines per server.
-- `SILENCE_MS=700` ends a speaker's capture after 700ms of silence.
-- `MIN_UTTERANCE_MS=500` ignores chunks shorter than 500ms.
-- `MAX_UTTERANCE_MS=8000` sets the hard maximum chunk duration during continuous speech.
-  The bot searches near the end of each chunk for a quieter boundary before splitting.
-- `SEGMENT_SEARCH_MS=1200` sets how far back from the hard limit it searches.
-- `SEGMENT_MIN_MS=4000` prevents very short chunks from being emitted by quiet-boundary
-  detection.
-- `SEGMENT_QUIET_RMS=700` sets the 16-bit PCM RMS threshold used to recognize a quiet
-  window. If no suitable quiet point is found, the bot falls back to the hard maximum.
-- `MAX_CONCURRENT_TRANSCRIPTIONS=2` controls simultaneous Whisper inference jobs.
-- `MAX_CONCURRENT_TRANSLATIONS=2` controls how many target languages are translated at once.
-  Extra targets wait for a worker; this makes adding languages possible without launching
-  an unlimited number of requests at once.
-- Start with both values at `2` on a local GPU. If Ollama generation slows down or GPU
-  memory pressure increases, reduce translation concurrency to `1` and compare timings.
+When no target is supplied to `/translate text`, automatic source detection is restricted
+to the configured standard language pair. Supplying a target allows the service to detect
+other source languages too.
 
-The bot logs its pending/active utterance counts. The Python service logs queue wait,
-transcription, translation, and total processing times. Compare those timings while testing
-with one, two, and three speakers before changing the concurrency values.
+Recent-message translation requires View Channel, Read Message History, and Send Messages.
+Manage Messages is also needed if the bot is to delete original messages after successfully
+posting their replacements. Bot-authored messages are skipped.
 
-## Choosing a translator
-- `TRANSLATOR=google` + `GOOGLE_API_KEY`
-- `TRANSLATOR=openai` + `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`
-  - local Ollama: `LLM_BASE_URL=http://localhost:11434/v1`, `LLM_MODEL=<model you pulled>`, `LLM_API_KEY=ollama`
+The bot keeps local translation metadata in `voice-bot/translation-history.json` so later
+recent-message translations can avoid duplicating work. Keep this file with the bot's data
+if you want that history to persist when moving machines.
 
-## Optional overlay relay (friends can use the overlay without Discord RPC)
+## 9. Performance settings and logs
 
-The overlay keeps its original Discord RPC reader. In its settings, choose one of:
-- **Discord** — existing Discord desktop IPC/RPC connection (default).
-- **Relay** — receives live transcripts directly from the PC running the voice bot. Friends do not need Discord RPC credentials.
-- **Both** — listens to both sources and suppresses duplicates when both carry the same Discord message ID.
+The following settings are optional; the values shown are the defaults.
 
-The relay is optional. Without `OVERLAY_RELAY_TOKENS`, the bot disables it and the existing Discord channel posting continues normally.
+| Variable | Default | What it controls |
+|---|---:|---|
+| `MAX_CONCURRENT_UTTERANCES` | `3` | Maximum audio-chunk jobs processing concurrently in the Discord bot. |
+| `SILENCE_MS` | `700` | Silence duration that ends a speaker's capture stream. |
+| `MIN_UTTERANCE_MS` | `500` | Ignore captured chunks shorter than this. |
+| `MAX_UTTERANCE_MS` | `8000` | Hard maximum chunk length during continuous speech. |
+| `SEGMENT_SEARCH_MS` | `1200` | How far back from the hard limit to search for a quieter split point. |
+| `SEGMENT_MIN_MS` | `4000` | Minimum segment duration before quiet-boundary splitting is considered. |
+| `SEGMENT_QUIET_RMS` | `700` | RMS threshold used to identify a quiet split window. |
+| `MAX_CONCURRENT_TRANSCRIPTIONS` | `2` | Simultaneous Whisper inference jobs in the Python service. |
+| `MAX_CONCURRENT_TRANSLATIONS` | `2` | Simultaneous translation requests in the Python service. |
 
-### Host setup
+The bot's queue log reports **waiting**, **active**, and **total** jobs. The Python service
+logs queue wait, speech-recognition time, translation time, and total processing time.
+Use these timings to identify the bottleneck before changing concurrency. Increasing
+concurrency can improve throughput with multiple speakers, but may increase GPU/VRAM
+contention and does not necessarily make a single utterance finish faster.
 
-1. Copy `.env.example` to `.env` as usual.
-2. Generate one random token per person (run once for each person):
+## 10. Optional desktop overlay
+
+The Electron overlay is independent of the Python service and Discord bot. To install and
+start it, open a **third** PowerShell window:
+
+```powershell
+cd overlay
+npm install
+npm start
+```
+
+The overlay has two ways to receive subtitles:
+
+- **Discord** — reads the configured Discord channels using Discord desktop RPC. The
+  overlay's Electron process needs `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`
+  in its environment. The Discord application must have the RPC/redirect configuration
+  expected by the overlay.
+- **Relay** — receives transcript updates directly from the bot. Friends do not need
+  Discord RPC credentials. Configure the relay URL and personal token in overlay Settings.
+- **Both** — listens to Discord and the relay, filtering duplicate message IDs.
+
+The overlay defaults to Discord mode. To use Relay or Both, first configure the host relay
+below, then choose the mode in the overlay's Settings.
+
+### Host: enable the authenticated relay
+
+1. Generate a unique token for each person who should connect. Run this in PowerShell:
    ```powershell
    node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
    ```
-3. Add the credentials to the host's private `.env` file. Use unique labels and never commit or post these values:
+2. Add the credentials to the root `.env`. Use a unique label for each token:
    ```env
    OVERLAY_RELAY_PORT=8765
-   OVERLAY_RELAY_TOKENS=owner:YOUR_64_CHARACTER_TOKEN,friend1:THEIR_64_CHARACTER_TOKEN
+   OVERLAY_RELAY_TOKENS=owner:PASTE_64_CHARACTER_TOKEN,friend1:PASTE_THEIR_64_CHARACTER_TOKEN
    ```
-4. Start the voice bot. It listens only on `127.0.0.1:8765`; it is not exposed directly to the internet.
-5. To test from outside your PC, install Cloudflare Tunnel and run a Quick Tunnel:
+3. Restart the Discord bot. It should log that the relay is listening on
+   `http://127.0.0.1:8765`. If no valid token entries are configured, the relay remains
+   disabled and normal Discord channel posting still works.
+4. For connections from outside the host PC, run a Cloudflare Quick Tunnel in another
+   terminal:
    ```powershell
    cloudflared tunnel --url http://127.0.0.1:8765
    ```
-   Use the generated HTTPS hostname as a WebSocket URL by changing `https://` to `wss://` and adding `/overlay`, for example `wss://YOUR-HOST.trycloudflare.com/overlay`.
-   Keep the tunnel terminal running while friends connect. A Quick Tunnel hostname is temporary and can change when restarted.
+5. Convert the generated HTTPS hostname to a WebSocket URL by using `wss://` and adding
+   `/overlay`. For example:
+   `wss://YOUR-HOST.trycloudflare.com/overlay`.
+   Keep the tunnel running. A Quick Tunnel hostname is temporary and may change when
+   restarted.
 
-### Friend setup
+The relay binds to loopback (`127.0.0.1`); use the tunnel for remote connections rather
+than exposing the relay port directly to the internet. The relay sends transcript text and
+display metadata, not voice audio.
 
-1. Open overlay settings and choose **Relay**.
-2. Paste the `wss://.../overlay` URL and that friend's personal token.
-3. Save. The overlay encrypts the token with Windows secure storage; it is not displayed again.
-4. Select the languages they want to display as usual.
+### Friend: connect an overlay
 
-### Revoking access
+1. Start the overlay and open its Settings.
+2. Choose **Relay** (or **Both**).
+3. Paste the host's `wss://.../overlay` URL and the personal token the host generated for
+   you.
+4. Save and select the languages to display.
 
-Remove that person's `label:token` entry from `OVERLAY_RELAY_TOKENS` in the host's `.env`, then restart the voice bot. Their token will no longer authenticate. Give each person a different token; do not reuse one shared credential.
+The overlay stores the token using the operating system's secure storage. Each person
+should have their own token. To revoke access, remove that person's `label:token` entry
+from the host's `.env` and restart the Discord bot.
 
-The relay forwards only transcript text and display metadata, not voice audio. The local health endpoint is `http://127.0.0.1:8765/health`. For remote use, always use the secure `wss://` URL; the overlay permits plain `ws://` only for loopback testing.
+## 11. Audio recording, message cleanup, and privacy
 
+- By default, voice audio is processed in memory and is not written to disk.
+- Set `RECORD_WAV=true` only when you deliberately want local WAV recordings for debugging.
+  Recordings are written under `voice-bot/recordings/`. Turn it back off after testing.
+- Bot subtitle messages are automatically deleted after `MESSAGE_DELETE_SECONDS`
+  (default: 300 seconds / 5 minutes). Set it to `0` to disable automatic deletion.
+- **Important:** `/leave` disconnects the bot and then scans the configured language/live
+  output channels, deleting messages authored by this bot. It does not delete user-authored
+  messages. The bot needs View Channel, Read Message History, and Manage Messages for
+  cleanup to work fully.
+- Recent-message translation metadata is stored locally in
+  `voice-bot/translation-history.json`. Treat it as private server data.
+- Tell everyone in the voice channel that the bot is listening and that their speech may be
+  transcribed and translated. Follow your server's consent and privacy rules.
 
-## Privacy
-The bot processes everyone's voice in the channel. Tell your friends. Audio is kept in memory only and
-never written to disk unless you turn on `RECORD_WAV`. When `/translate recent` is used, the bot saves the selected message text and translation metadata locally in `voice-bot/translation-history.json` so it can avoid duplicate translations after deleting originals. This file is ignored by Git; treat it as private server data and do not share it.
+## Troubleshooting
+
+**The bot says `Missing DISCORD_TOKEN in .env`**
+- Make sure `.env` is in the project root, beside this README.
+- Check that the variable is named `DISCORD_TOKEN` and that the token is valid.
+
+**The bot joins Discord but no transcripts appear**
+- Confirm the Python service is running at `SERVICE_URL`.
+- Open `http://127.0.0.1:8000/health` and check the service is healthy.
+- Confirm the bot can view and send messages in the configured output channels.
+- Check both the Python and bot terminal windows for errors.
+
+**Whisper fails to load CUDA libraries**
+- Confirm the NVIDIA driver is installed and up to date.
+- Re-activate the Python virtual environment and reinstall the pinned requirements:
+  `pip install -r requirements.txt`.
+- As a diagnostic fallback, set `WHISPER_DEVICE=cpu` and
+  `WHISPER_COMPUTE=int8`, then restart the service.
+
+**Translation does not happen**
+- `TRANSLATOR=none` performs transcription only.
+- For Ollama, make sure Ollama is running, the model exists, and `LLM_BASE_URL` and
+  `LLM_MODEL` match your local setup.
+- For Google, check `GOOGLE_API_KEY` and API access.
+
+**Slash commands are missing**
+- Run `npm run register` from `voice-bot/` after checking
+  `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, and `DISCORD_GUILD_ID` in the root `.env`.
+
+**Overlay relay says it is disabled**
+- Check that `OVERLAY_RELAY_TOKENS` contains at least one unique `label:token` entry.
+- Each token must be at least 32 characters. Restart the bot after editing `.env`.
+
+---
+
+## Quick start: which terminals stay open?
+
+1. **Terminal 1 — Python:** activate `service/.venv` and run `python main.py`.
+2. **Terminal 2 — Discord bot:** run `npm start` from `voice-bot/`.
+3. **Terminal 3 — Overlay (optional):** run `npm start` from `overlay/`.
+4. **Terminal 4 — Cloudflare Tunnel (optional):** run the tunnel command only if remote
+   overlay clients need to connect.
+
+Keep the Python service and Discord bot running while translating.
