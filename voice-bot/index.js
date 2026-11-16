@@ -379,8 +379,8 @@ async function onJoin(interaction) {
     pendingJobs: 0,
     maxConcurrentJobs: maxConcurrentUtterances,
     outputTail: Promise.resolve(),
-    currentTurnSpeakerId: null,
-    currentTurn: null,
+    lastStartedSpeakerId: null,
+    latestTurnBySpeaker: new Map(),
   };
 
   sessions.set(interaction.guildId, session);
@@ -869,8 +869,8 @@ function startListening(session) {
   const receiver = session.connection.receiver;
 
   receiver.speaking.on('start', async (userId) => {
-    if (session.active.has(userId)) return;
-    session.active.add(userId);
+    const alreadyActive = session.active.has(userId);
+    if (alreadyActive && session.lastStartedSpeakerId === userId) return;
 
     try {
       // Discord bot accounts (music bots, moderation bots, etc.) should never
@@ -878,9 +878,22 @@ function startListening(session) {
       const member = await session.guild.members.fetch(userId).catch(() => null);
       if (member?.user?.bot) return;
 
+      // A different speaker taking the floor creates a new turn. If the first
+      // speaker resumes while their capture stream is still open, give them a
+      // fresh turn too; subsequent chunks then edit that newer message.
+      if (!alreadyActive || session.lastStartedSpeakerId !== userId) {
+        session.latestTurnBySpeaker.set(userId, {
+          messages: new Map(),
+          liveOriginal: '',
+          liveTranslations: new Map(),
+        });
+        session.lastStartedSpeakerId = userId;
+      }
+
+      if (alreadyActive) return;
+      session.active.add(userId);
+
       await captureUtterance(receiver, userId, (pcm) => {
-        // A change of speaker starts a new chronological turn. Consecutive
-        // chunks from the same speaker continue updating that turn.
         enqueueUtterance(session, userId, pcm);
       });
     } catch (err) {
@@ -892,15 +905,12 @@ function startListening(session) {
 }
 
 function enqueueUtterance(session, userId, pcm) {
-  if (session.currentTurnSpeakerId !== userId) {
-    session.currentTurnSpeakerId = userId;
-    session.currentTurn = {
-      messages: new Map(),
-      liveOriginal: '',
-      liveTranslations: new Map(),
-    };
-  }
-  const turn = session.currentTurn;
+  const turn = session.latestTurnBySpeaker.get(userId) ?? {
+    messages: new Map(),
+    liveOriginal: '',
+    liveTranslations: new Map(),
+  };
+  session.latestTurnBySpeaker.set(userId, turn);
   const previous = session.speakerQueues.get(userId) ?? Promise.resolve();
 
   // Reserve output order when audio is captured, not when transcription ends.
