@@ -952,14 +952,19 @@ function runWithSessionLimit(session, job) {
     session.pendingJobs++;
     session.workQueue.push({ job, resolve, reject, queuedAt });
 
-    if (session.pendingJobs === 1 || session.pendingJobs % 5 === 0) {
-      console.log(
-        `[QUEUE] ${session.pendingJobs} utterance(s) pending; ` +
-        `${session.runningJobs}/${session.maxConcurrentJobs} active.`,
-      );
-    }
+    const shouldLogQueue = (
+      session.pendingJobs === 1 || session.pendingJobs % 5 === 0
+    );
 
     drainSessionQueue(session);
+
+    if (shouldLogQueue) {
+      console.log(
+        `[QUEUE] ${session.workQueue.length} waiting; ` +
+        `${session.runningJobs}/${session.maxConcurrentJobs} active; ` +
+        `${session.pendingJobs} total.`,
+      );
+    }
   });
 }
 
