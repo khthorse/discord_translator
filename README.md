@@ -330,16 +330,19 @@ npm start
 
 The overlay has two ways to receive subtitles:
 
-- **Discord** — reads the configured Discord channels using Discord desktop RPC. The
-  overlay's Electron process needs `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`
-  in its environment. The Discord application must have the RPC/redirect configuration
+- **Discord** — reads the overlay's configured Discord channels using Discord desktop RPC.
+  This mode requires the Discord desktop app and valid `DISCORD_CLIENT_ID` and
+  `DISCORD_CLIENT_SECRET` environment variables to be present in the Electron process.
+  Unlike the bot and Python service, the overlay does **not** load the project's root
+  `.env` automatically. Set those variables in the PowerShell session before running
+  `npm start`. The Discord application must also have the RPC/redirect configuration
   expected by the overlay.
 - **Relay** — receives transcript updates directly from the bot. Friends do not need
   Discord RPC credentials. Configure the relay URL and personal token in overlay Settings.
 - **Both** — listens to Discord and the relay, filtering duplicate message IDs.
 
-The overlay defaults to Discord mode. To use Relay or Both, first configure the host relay
-below, then choose the mode in the overlay's Settings.
+The overlay defaults to Discord mode. For a simpler setup that does not require Discord RPC
+credentials on each overlay PC, use Relay mode and configure the host relay below.
 
 ### Host: enable the authenticated relay
 
