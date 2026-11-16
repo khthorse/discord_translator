@@ -379,6 +379,8 @@ async function onJoin(interaction) {
     pendingJobs: 0,
     maxConcurrentJobs: maxConcurrentUtterances,
     outputTail: Promise.resolve(),
+    currentTurnSpeakerId: null,
+    currentTurn: null,
   };
 
   sessions.set(interaction.guildId, session);
@@ -876,12 +878,10 @@ function startListening(session) {
       const member = await session.guild.members.fetch(userId).catch(() => null);
       if (member?.user?.bot) return;
 
-      // Chunks from one continuous speaking turn update the same Discord posts.
-      const turn = { messages: new Map(), liveOriginal: '', liveTranslations: new Map() };
-
       await captureUtterance(receiver, userId, (pcm) => {
-        // Transcription remains concurrent; publication is globally ordered.
-        enqueueUtterance(session, userId, pcm, turn);
+        // A change of speaker starts a new chronological turn. Consecutive
+        // chunks from the same speaker continue updating that turn.
+        enqueueUtterance(session, userId, pcm);
       });
     } catch (err) {
       console.error(`Capture failed for ${userId}:`, err.message);
@@ -891,7 +891,16 @@ function startListening(session) {
   });
 }
 
-function enqueueUtterance(session, userId, pcm, turn) {
+function enqueueUtterance(session, userId, pcm) {
+  if (session.currentTurnSpeakerId !== userId) {
+    session.currentTurnSpeakerId = userId;
+    session.currentTurn = {
+      messages: new Map(),
+      liveOriginal: '',
+      liveTranslations: new Map(),
+    };
+  }
+  const turn = session.currentTurn;
   const previous = session.speakerQueues.get(userId) ?? Promise.resolve();
 
   // Reserve output order when audio is captured, not when transcription ends.
