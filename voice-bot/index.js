@@ -208,6 +208,63 @@ async function sendBotMessage(channel, content) {
   return message;
 }
 
+function joinTranslationChunks(existing, next) {
+  const punctuationAtStart = /^[,.;:!?…،。！？；：、]/u.test(next);
+  return existing + (punctuationAtStart ? '' : ' ') + next;
+}
+
+async function appendTurnMessage(turn, key, channel, prefix, text) {
+  const nextText = String(text || '').trim();
+  if (!nextText) return null;
+
+  const current = turn.messages.get(key);
+  const combinedText = current
+    ? joinTranslationChunks(current.text, nextText)
+    : nextText;
+  const content = prefix + combinedText;
+
+  // Start another message rather than exceeding Discord's message limit.
+  if (content.length > 1900) {
+    const message = await sendBotMessage(channel, prefix + nextText);
+    if (message) turn.messages.set(key, { message, text: nextText });
+    return message;
+  }
+
+  if (current) {
+    try {
+      await current.message.edit({ content, allowedMentions: { parse: [] } });
+      current.text = combinedText;
+      return current.message;
+    } catch (err) {
+      console.warn('Could not update accumulating translation:', err.message);
+      return current.message;
+    }
+  }
+
+  const message = await sendBotMessage(channel, content);
+  if (message) turn.messages.set(key, { message, text: nextText });
+  return message;
+}
+
+async function upsertTurnMessage(turn, key, channel, content) {
+  const current = turn.messages.get(key);
+  if (current && content.length <= 1900) {
+    if (current.content === content) return current.message;
+    try {
+      await current.message.edit({ content, allowedMentions: { parse: [] } });
+      current.content = content;
+      return current.message;
+    } catch (err) {
+      console.warn('Could not update accumulating live translation:', err.message);
+      return current.message;
+    }
+  }
+
+  const message = await sendBotMessage(channel, content);
+  if (message) turn.messages.set(key, { message, content });
+  return message;
+}
+
 async function getGuildTextChannel(guild, channelId) {
   if (!channelId) return null;
   return guild.channels.fetch(channelId).catch(() => null);
@@ -321,6 +378,7 @@ async function onJoin(interaction) {
     runningJobs: 0,
     pendingJobs: 0,
     maxConcurrentJobs: maxConcurrentUtterances,
+    outputTail: Promise.resolve(),
   };
 
   sessions.set(interaction.guildId, session);
@@ -818,10 +876,12 @@ function startListening(session) {
       const member = await session.guild.members.fetch(userId).catch(() => null);
       if (member?.user?.bot) return;
 
+      // Chunks from one continuous speaking turn update the same Discord posts.
+      const turn = { messages: new Map(), liveOriginal: '', liveTranslations: new Map() };
+
       await captureUtterance(receiver, userId, (pcm) => {
-        // Enqueue each completed chunk immediately, even while this speaker
-        // continues talking. Per-speaker queues preserve the original order.
-        enqueueUtterance(session, userId, pcm);
+        // Transcription remains concurrent; publication is globally ordered.
+        enqueueUtterance(session, userId, pcm, turn);
       });
     } catch (err) {
       console.error(`Capture failed for ${userId}:`, err.message);
@@ -831,14 +891,24 @@ function startListening(session) {
   });
 }
 
-function enqueueUtterance(session, userId, pcm) {
+function enqueueUtterance(session, userId, pcm, turn) {
   const previous = session.speakerQueues.get(userId) ?? Promise.resolve();
 
-  // Preserve each speaker's utterance order while allowing different speakers
-  // to be processed concurrently.
+  // Reserve output order when audio is captured, not when transcription ends.
+  const previousOutput = session.outputTail;
+  let releaseOutput;
+  session.outputTail = new Promise(resolve => {
+    releaseOutput = resolve;
+  });
+
+  // Keep each speaker's chunks in order while allowing different speakers
+  // to be transcribed concurrently.
   const task = previous
     .catch(() => {})
-    .then(() => runWithSessionLimit(session, () => handleUtterance(session, userId, pcm)));
+    .then(() => runWithSessionLimit(
+      session,
+      () => handleUtterance(session, userId, pcm, turn, previousOutput, releaseOutput),
+    ));
 
   session.speakerQueues.set(userId, task);
 
@@ -850,7 +920,6 @@ function enqueueUtterance(session, userId, pcm) {
     }
   });
 }
-
 function runWithSessionLimit(session, job) {
   return new Promise((resolve, reject) => {
     const queuedAt = Date.now();
@@ -1005,159 +1074,162 @@ function captureUtterance(receiver, userId, onSegment) {
 
 // ------------------------------------------------------------- the work ----
 
-async function handleUtterance(session, userId, pcm) {
-  const durationMs = pcm.length / BYTES_PER_MS;
-  if (durationMs < minMs) return;
-
-  const member = await session.guild.members.fetch(userId).catch(() => null);
-  const name = member?.displayName ?? 'Unknown';
-  const wav = pcmToWav(pcm, SAMPLE_RATE, CHANNELS);
-
-  if (recordWav) {
-    const file = `recordings/${Date.now()}-${userId}.wav`;
-    fs.writeFileSync(file, wav);
-    console.log(`Saved ${file} (${(durationMs / 1000).toFixed(1)} s)`);
-  }
-
-  // Read this server's settings for every utterance.
-  const settings = getGuildSettings(session.guild.id);
-
-  let result;
-
+async function handleUtterance(session, userId, pcm, turn, previousOutput, releaseOutput) {
   try {
-    const params = new URLSearchParams({
-      speaker: userId,
-      candidates: settings.inputLanguages.join(','),
-      targets: settings.targetLanguages.join(','),
-      translate: settings.targetLanguages.length > 0 ? 'true' : 'false',
-    });
+    const durationMs = pcm.length / BYTES_PER_MS;
+    if (durationMs < minMs) return;
 
-    const res = await fetch(`${SERVICE_URL}/process?${params}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'audio/wav' },
-      body: wav,
-      signal: AbortSignal.timeout(60_000),
-    });
+    const member = await session.guild.members.fetch(userId).catch(() => null);
+    const name = member?.displayName ?? 'Unknown';
+    const wav = pcmToWav(pcm, SAMPLE_RATE, CHANNELS);
 
-    if (!res.ok) {
-      throw new Error(`service answered HTTP ${res.status}`);
+    if (recordWav) {
+      const file = `recordings/${Date.now()}-${userId}.wav`;
+      fs.writeFileSync(file, wav);
+      console.log(`Saved ${file} (${(durationMs / 1000).toFixed(1)} s)`);
     }
 
-    result = await res.json();
-  } catch (err) {
-    console.error('Could not reach the Python service:', err.message);
-    return;
-  }
+    const settings = getGuildSettings(session.guild.id);
+    let result;
 
-  if (!result.original) return;
+    try {
+      const params = new URLSearchParams({
+        speaker: userId,
+        candidates: settings.inputLanguages.join(','),
+        targets: settings.targetLanguages.join(','),
+        translate: settings.targetLanguages.length > 0 ? 'true' : 'false',
+      });
 
-  const sourceLanguage = result.language;
-  const translations = result.translations ?? {};
+      const res = await fetch(`${SERVICE_URL}/process?${params}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: wav,
+        signal: AbortSignal.timeout(60_000),
+      });
 
-  // Original transcript goes to its source-language channel,
-  // even when that language is not a translation target.
-  const sourceChannelId = sourceLanguage
-    && getLanguageChannelId(session.guild.id, sourceLanguage);
-
-  let sourceMessageId = '';
-
-  if (sourceChannelId) {
-    const sourceChannel = await getGuildTextChannel(
-      session.guild,
-      sourceChannelId,
-    );
-
-    if (sourceChannel) {
-      const sentMessage = await sendBotMessage(
-        sourceChannel,
-        `**${languageFlag(sourceLanguage)} ${escapeMarkdown(name)}:** ${escapeMarkdown(result.original)}`,
-      );
-      sourceMessageId = sentMessage?.id || '';
+      if (!res.ok) throw new Error(`service answered HTTP ${res.status}`);
+      result = await res.json();
+    } catch (err) {
+      console.error('Could not reach the Python service:', err.message);
+      return;
     }
-  }
 
-  // Relay the original even if no Discord text channel is mapped for it.
-  broadcastOverlayMessage({
-    language: sourceLanguage,
-    channelName: sourceLanguage.toUpperCase(),
-    flag: languageFlag(sourceLanguage),
-    author: name,
-    content: result.original,
-    messageId: sourceMessageId,
-  });
+    if (!result.original) return;
 
-  // Send each enabled translation to its own language channel.
-  for (const [targetLanguage, translatedText] of Object.entries(translations)) {
-    if (!translatedText) continue;
-    if (!settings.targetLanguages.includes(targetLanguage)) continue;
+    // Only publication waits for earlier captured chunks. Speech recognition
+    // and translation requests still run concurrently.
+    await previousOutput;
 
-    const targetChannelId = getLanguageChannelId(
-      session.guild.id,
-      targetLanguage,
-    );
+    const sourceLanguage = result.language;
+    const translations = result.translations ?? {};
+    const sourceChannelId = sourceLanguage
+      && getLanguageChannelId(session.guild.id, sourceLanguage);
 
-    let targetMessageId = '';
-
-    if (targetChannelId) {
-      const targetChannel = await getGuildTextChannel(
-        session.guild,
-        targetChannelId,
-      );
-
-      if (targetChannel) {
-        const sentMessage = await sendBotMessage(
-          targetChannel,
-          `**${languageFlag(targetLanguage)} ${escapeMarkdown(name)}:** ${escapeMarkdown(translatedText)}`,
+    let sourceMessageId = '';
+    if (sourceChannelId) {
+      const sourceChannel = await getGuildTextChannel(session.guild, sourceChannelId);
+      if (sourceChannel) {
+        const sentMessage = await appendTurnMessage(
+          turn,
+          `source:${sourceLanguage}:${sourceChannelId}`,
+          sourceChannel,
+          `**${languageFlag(sourceLanguage)} ${escapeMarkdown(name)}:** `,
+          escapeMarkdown(result.original),
         );
-        targetMessageId = sentMessage?.id || '';
+        sourceMessageId = sentMessage?.id || '';
       }
     }
 
     broadcastOverlayMessage({
-      language: targetLanguage,
-      channelName: targetLanguage.toUpperCase(),
-      flag: languageFlag(targetLanguage),
+      language: sourceLanguage,
+      channelName: sourceLanguage.toUpperCase(),
+      flag: languageFlag(sourceLanguage),
       author: name,
-      content: translatedText,
-      messageId: targetMessageId,
+      content: result.original,
+      messageId: sourceMessageId,
     });
-  }
 
- 
-  // The live channel always receives the original transcript,
-  // followed by only the translations selected by the server admin.
-  if (settings.liveChannelId) {
-    const liveChannel = await getGuildTextChannel(
-      session.guild,
-      settings.liveChannelId,
-    );
+    for (const [targetLanguage, translatedText] of Object.entries(translations)) {
+      if (!translatedText) continue;
+      if (!settings.targetLanguages.includes(targetLanguage)) continue;
 
-    if (liveChannel) {
-      const liveBlocks = settings.liveLanguages
-        .filter(language => settings.targetLanguages.includes(language))
-        .map(language => {
-          const translatedText = translations[language];
-          if (!translatedText) return null;
+      const targetChannelId = getLanguageChannelId(session.guild.id, targetLanguage);
+      let targetMessageId = '';
+      if (targetChannelId) {
+        const targetChannel = await getGuildTextChannel(session.guild, targetChannelId);
+        if (targetChannel) {
+          const sentMessage = await appendTurnMessage(
+            turn,
+            `target:${targetLanguage}:${targetChannelId}`,
+            targetChannel,
+            `**${languageFlag(targetLanguage)} ${escapeMarkdown(name)}:** `,
+            escapeMarkdown(translatedText),
+          );
+          targetMessageId = sentMessage?.id || '';
+        }
+      }
 
-          const label = `${languageFlag(language)} ${language.toUpperCase()}`;
-          return `**${label}**\n${escapeMarkdown(translatedText)}`;
-        })
-        .filter(Boolean);
-
-      const originalLabel = sourceLanguage
-        ? `${languageFlag(sourceLanguage)} ${sourceLanguage.toUpperCase()} · Original`
-        : '🌐 Original';
-
-      const liveMessage = [
-        `**${escapeMarkdown(name)}**\n**${originalLabel}**\n${escapeMarkdown(result.original)}`,
-        ...liveBlocks,
-      ].join('\n\n') + '\n\n\u200B';
-
-      await sendBotMessage(liveChannel, liveMessage);
+      broadcastOverlayMessage({
+        language: targetLanguage,
+        channelName: targetLanguage.toUpperCase(),
+        flag: languageFlag(targetLanguage),
+        author: name,
+        content: translatedText,
+        messageId: targetMessageId,
+      });
     }
+
+    if (settings.liveChannelId) {
+      const liveChannel = await getGuildTextChannel(session.guild, settings.liveChannelId);
+      if (liveChannel) {
+        turn.liveOriginal = turn.liveOriginal
+          ? joinTranslationChunks(turn.liveOriginal, escapeMarkdown(result.original))
+          : escapeMarkdown(result.original);
+
+        for (const language of settings.liveLanguages) {
+          if (!settings.targetLanguages.includes(language)) continue;
+          const translatedText = translations[language];
+          if (!translatedText) continue;
+          const previousText = turn.liveTranslations.get(language) || '';
+          turn.liveTranslations.set(
+            language,
+            previousText
+              ? joinTranslationChunks(previousText, escapeMarkdown(translatedText))
+              : escapeMarkdown(translatedText),
+          );
+        }
+
+        const liveBlocks = settings.liveLanguages
+          .filter(language => settings.targetLanguages.includes(language))
+          .map(language => {
+            const translatedText = turn.liveTranslations.get(language);
+            if (!translatedText) return null;
+            const label = `${languageFlag(language)} ${language.toUpperCase()}`;
+            return `**${label}**\n${translatedText}`;
+          })
+          .filter(Boolean);
+
+        const originalLabel = sourceLanguage
+          ? `${languageFlag(sourceLanguage)} ${sourceLanguage.toUpperCase()} · Original`
+          : '🌐 Original';
+        const liveMessage = [
+          `**${escapeMarkdown(name)}**\n**${originalLabel}**\n${turn.liveOriginal}`,
+          ...liveBlocks,
+        ].join('\n\n') + '\n\n\u200B';
+
+        await upsertTurnMessage(
+          turn,
+          `live:${settings.liveChannelId}`,
+          liveChannel,
+          liveMessage,
+        );
+      }
+    }
+  } finally {
+    // Failed or empty requests must not block later chunks in the output queue.
+    releaseOutput();
   }
 }
-
 // -------------------------------------------------------------- shutdown ---
 
 process.on('SIGINT', () => {
