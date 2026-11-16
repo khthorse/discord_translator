@@ -870,18 +870,8 @@ function startListening(session) {
 
   receiver.speaking.on('start', async (userId) => {
     const alreadyActive = session.active.has(userId);
-    if (alreadyActive && session.lastStartedSpeakerId === userId) return;
-
-    try {
-      // Discord bot accounts (music bots, moderation bots, etc.) should never
-      // enter speech recognition or translation.
-      const member = await session.guild.members.fetch(userId).catch(() => null);
-      if (member?.user?.bot) return;
-
-      // A different speaker taking the floor creates a new turn. If the first
-      // speaker resumes while their capture stream is still open, give them a
-      // fresh turn too; subsequent chunks then edit that newer message.
-      if (!alreadyActive || session.lastStartedSpeakerId !== userId) {
+    if (alreadyActive) {
+      if (session.lastStartedSpeakerId !== userId) {
         session.latestTurnBySpeaker.set(userId, {
           messages: new Map(),
           liveOriginal: '',
@@ -889,8 +879,24 @@ function startListening(session) {
         });
         session.lastStartedSpeakerId = userId;
       }
+      return;
+    }
 
-      if (alreadyActive) return;
+    try {
+      // Discord bot accounts (music bots, moderation bots, etc.) should never
+      // enter speech recognition or translation.
+      const member = await session.guild.members.fetch(userId).catch(() => null);
+      if (member?.user?.bot) return;
+
+      // A new speaker turn gets its own accumulating messages. A speaker who
+      // resumes after an interruption gets a new turn even if their old stream
+      // has not reached its silence timeout yet.
+      session.latestTurnBySpeaker.set(userId, {
+        messages: new Map(),
+        liveOriginal: '',
+        liveTranslations: new Map(),
+      });
+      session.lastStartedSpeakerId = userId;
       session.active.add(userId);
 
       await captureUtterance(receiver, userId, (pcm) => {
