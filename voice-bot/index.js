@@ -882,6 +882,7 @@ function startListening(session) {
       return;
     }
 
+    session.active.add(userId);
     try {
       // Discord bot accounts (music bots, moderation bots, etc.) should never
       // enter speech recognition or translation.
@@ -897,7 +898,6 @@ function startListening(session) {
         liveTranslations: new Map(),
       });
       session.lastStartedSpeakerId = userId;
-      session.active.add(userId);
 
       await captureUtterance(receiver, userId, (pcm) => {
         enqueueUtterance(session, userId, pcm);
