@@ -4,6 +4,29 @@ import { WebSocket, WebSocketServer } from 'ws';
 
 const port = Math.max(1, Number(process.env.OVERLAY_RELAY_PORT) || 8765);
 const clients = new Set();
+const availableLanguages = new Map();
+
+function languageDisplayName(code) {
+  try {
+    const normalized = code.includes('-')
+      ? code.split('-')[0] + '-' + code.split('-').slice(1).join('-').toUpperCase()
+      : code;
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(normalized) || code.toUpperCase();
+  } catch {
+    return code.toUpperCase();
+  }
+}
+
+function getLanguageList() {
+  return [...availableLanguages.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function broadcastLanguageList() {
+  const packet = JSON.stringify({ type: 'languages', data: getLanguageList() });
+  for (const client of clients) {
+    if (client.readyState === WebSocket.OPEN) client.send(packet);
+  }
+}
 
 function loadTokens() {
   const raw = String(process.env.OVERLAY_RELAY_TOKENS || '');
@@ -137,6 +160,7 @@ export function startOverlayRelay() {
       clients.add(webSocket);
 
       webSocket.send(JSON.stringify({ type: 'ready' }));
+      webSocket.send(JSON.stringify({ type: 'languages', data: getLanguageList() }));
       console.log(`[OVERLAY] Authenticated client connected: ${credentialLabel}`);
     });
 
@@ -170,12 +194,21 @@ export function broadcastOverlayMessage(message) {
   const language = String(message.language || '').toLowerCase();
   if (!/^[a-z]{2,3}(?:-[a-z]{2})?$/.test(language)) return;
 
+  const name = languageDisplayName(language);
+  const flag = String(message.flag || '🌐').slice(0, 8);
+  const previousLanguage = availableLanguages.get(language);
+  availableLanguages.set(language, { code: language, name, flag });
+  if (!previousLanguage || previousLanguage.flag !== flag || previousLanguage.name !== name) {
+    broadcastLanguageList();
+  }
+
   const packet = JSON.stringify({
     type: 'message',
     data: {
       language,
-      channelName: String(message.channelName || language.toUpperCase()).slice(0, 40),
-      flag: String(message.flag || '🌐').slice(0, 8),
+      channelName: String(message.channelName || name).slice(0, 40),
+      languageName: name,
+      flag,
       author: String(message.author || 'Unknown').slice(0, 100),
       content: String(message.content || '').slice(0, 1800),
       timestamp: message.timestamp || new Date().toISOString(),
