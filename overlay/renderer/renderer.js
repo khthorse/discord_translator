@@ -663,16 +663,16 @@ async function loadRelaySettings() {
     connectionModeSelect.value = config.mode || 'discord';
     relayUrlInput.value = config.url || '';
     relayCredentialStatus.textContent = config.hasToken
-      ? 'A personal token is saved securely. Leave the token field empty to keep using it.'
-      : 'No token saved yet. Each friend needs their own private token.';
+      ? (settings.uiLanguage === 'es' ? 'Hay un token personal guardado de forma segura. Deja el campo vacío para seguir utilizándolo.' : 'A personal token is saved securely. Leave the token field empty to keep using it.')
+      : (settings.uiLanguage === 'es' ? 'Todavía no hay ningún token guardado. Cada amigo necesita su propio token privado.' : 'No token saved yet. Each friend needs their own private token.');
   } catch (error) {
-    relaySettingsStatus.textContent = `Could not load relay settings: ${error.message}`;
+    relaySettingsStatus.textContent = settings.uiLanguage === 'es' ? `No se pudieron cargar los ajustes de relay: ${error.message}` : `Could not load relay settings: ${error.message}`;
   }
 }
 
 saveRelaySettingsButton.addEventListener('click', async () => {
   saveRelaySettingsButton.disabled = true;
-  relaySettingsStatus.textContent = 'Saving connection settings...';
+  relaySettingsStatus.textContent = settings.uiLanguage === 'es' ? 'Guardando ajustes de conexión...' : 'Saving connection settings...';
 
   try {
     const result = await window.wookie.saveRelayConfig({
@@ -682,17 +682,17 @@ saveRelaySettingsButton.addEventListener('click', async () => {
     });
 
     if (!result.ok) {
-      relaySettingsStatus.textContent = result.error || 'Could not save settings.';
+      relaySettingsStatus.textContent = result.error || (settings.uiLanguage === 'es' ? 'No se pudieron guardar los ajustes.' : 'Could not save settings.');
       return;
     }
 
     relayTokenInput.value = '';
     relayCredentialStatus.textContent = result.hasToken
-      ? 'Personal token saved securely.'
-      : 'No relay token saved.';
-    relaySettingsStatus.textContent = 'Saved. Connection mode updated.';
+      ? (settings.uiLanguage === 'es' ? 'Token personal guardado de forma segura.' : 'Personal token saved securely.')
+      : (settings.uiLanguage === 'es' ? 'No hay ningún token de relay guardado.' : 'No relay token saved.');
+    relaySettingsStatus.textContent = settings.uiLanguage === 'es' ? 'Guardado. Modo de conexión actualizado.' : 'Saved. Connection mode updated.';
   } catch (error) {
-    relaySettingsStatus.textContent = `Could not save settings: ${error.message}`;
+    relaySettingsStatus.textContent = settings.uiLanguage === 'es' ? `No se pudieron guardar los ajustes: ${error.message}` : `Could not save settings: ${error.message}`;
   } finally {
     saveRelaySettingsButton.disabled = false;
   }
