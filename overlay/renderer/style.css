@@ -903,3 +903,13 @@ body.settings-window .overlay.subtitle-mode.subtitle-transparent:hover {
 .shortcut-input { width:100%; padding:10px 12px; color:#e7f4ff; font-size:12px; font-weight:700; text-align:left; background:rgba(255,255,255,.07); border:1px solid rgba(145,175,205,.2); border-radius:6px; cursor:pointer; }
 .shortcut-input.recording { border-color:var(--accent); color:var(--accent); }
 .overlay.subtitle-mode .toolbar { margin-left:8px; }
+
+
+/* Keep the subtitle window visually transparent on hover while click-through is active. */
+.overlay.subtitle-mode.subtitle-transparent.click-through-active:hover,
+.overlay.subtitle-mode.subtitle-transparent.click-through-active:focus-within {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
