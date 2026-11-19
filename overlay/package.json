@@ -46,7 +46,7 @@
       "deleteAppDataOnUninstall": false,
       "installerIcon": "assets/Wookie_icon.ico",
       "uninstallerIcon": "assets/Wookie_icon.ico",
-      "installerHeader": "assets/Wookie_banner_header.bmp"
+      "installerHeader": "assets/Wookie_banner.bmp"
     }
   },
   "allowScripts": {
