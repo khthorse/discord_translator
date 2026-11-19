@@ -103,6 +103,7 @@ SERVICE_PORT=8000
 WHISPER_MODEL=large-v3-turbo
 WHISPER_DEVICE=cuda
 WHISPER_COMPUTE=float16
+WHISPER_BEAM_SIZE=1
 
 # Translation: none, google, or openai
 TRANSLATOR=openai
@@ -111,11 +112,11 @@ LLM_MODEL=YOUR_OLLAMA_MODEL_NAME
 
 # Voice bot tuning (these are also the built-in defaults)
 MAX_CONCURRENT_UTTERANCES=3
-SILENCE_MS=700
+SILENCE_MS=500
 MIN_UTTERANCE_MS=500
-MAX_UTTERANCE_MS=8000
+MAX_UTTERANCE_MS=4000
 SEGMENT_SEARCH_MS=1200
-SEGMENT_MIN_MS=4000
+SEGMENT_MIN_MS=2500
 SEGMENT_QUIET_RMS=700
 SHOW_ORIGINAL=true
 RECORD_WAV=false
@@ -313,12 +314,13 @@ The following settings are optional; the values shown are the defaults.
 | Variable | Default | What it controls |
 |---|---:|---|
 | `MAX_CONCURRENT_UTTERANCES` | `3` | Maximum audio-chunk jobs processing concurrently in the Discord bot. |
-| `SILENCE_MS` | `700` | Silence duration that ends a speaker's capture stream. |
+| `SILENCE_MS` | `500` | Silence duration that ends a speaker's capture stream. |
 | `MIN_UTTERANCE_MS` | `500` | Ignore captured chunks shorter than this. |
-| `MAX_UTTERANCE_MS` | `8000` | Hard maximum chunk length during continuous speech. |
+| `MAX_UTTERANCE_MS` | `4000` | Hard maximum chunk length during continuous speech. Shorter chunks produce earlier partial subtitles. |
 | `SEGMENT_SEARCH_MS` | `1200` | How far back from the hard limit to search for a quieter split point. |
-| `SEGMENT_MIN_MS` | `4000` | Minimum segment duration before quiet-boundary splitting is considered. |
+| `SEGMENT_MIN_MS` | `2500` | Minimum segment duration before quiet-boundary splitting is considered. |
 | `SEGMENT_QUIET_RMS` | `700` | RMS threshold used to identify a quiet split window. |
+| `WHISPER_BEAM_SIZE` | `1` | Whisper search width; 1 is faster, while larger values can improve recognition accuracy. |
 | `MAX_CONCURRENT_TRANSCRIPTIONS` | `2` | Simultaneous Whisper inference jobs in the Python service. |
 | `MAX_CONCURRENT_TRANSLATIONS` | `2` | Simultaneous translation requests in the Python service. |
 
