@@ -763,8 +763,6 @@ function receiveLanguages(languages) {
       flag: String(item.flag || '🌐').slice(0, 8)
     }));
 
-  if (!nextLanguages.length) return;
-
   const previousCodes = new Set(settings.knownLanguageCodes || ['en', 'es']);
   for (const language of nextLanguages) {
     if (!previousCodes.has(language.code)) settings.languages.push(language.code);
