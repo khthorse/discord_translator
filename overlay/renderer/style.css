@@ -883,3 +883,10 @@ body.settings-window .overlay.subtitle-mode.subtitle-transparent:hover {
   backdrop-filter: blur(16px) !important;
   opacity: 1 !important;
 }
+
+
+/* Explicitly override .setting-group display when a source section is hidden. */
+#discordSettingsGroup[hidden],
+#relaySettingsGroup[hidden] {
+  display: none !important;
+}
