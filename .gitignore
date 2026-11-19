@@ -14,3 +14,7 @@ voice-bot/translation-history.json
 .venv/
 venv/
 service/wookie-translator/
+
+# Electron build output and generated installers
+overlay/release/
+overlay/dist/
