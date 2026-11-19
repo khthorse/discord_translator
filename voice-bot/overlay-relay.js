@@ -188,6 +188,23 @@ export function startOverlayRelay() {
   return true;
 }
 
+
+export function setOverlayLanguages(languages) {
+  if (!Array.isArray(languages)) return;
+  for (const item of languages) {
+    const code = String(typeof item === 'string' ? item : item?.code || '').toLowerCase();
+    if (!/^[a-z]{2,3}(?:-[a-z]{2})?$/.test(code)) continue;
+    const name = String(typeof item === 'object' && item?.name
+      ? item.name
+      : languageDisplayName(code)).slice(0, 60);
+    const flag = String(typeof item === 'object' && item?.flag
+      ? item.flag
+      : '🌐').slice(0, 8);
+    availableLanguages.set(code, { code, name, flag });
+  }
+  broadcastLanguageList();
+}
+
 export function broadcastOverlayMessage(message) {
   if (!message || typeof message !== 'object') return;
 
