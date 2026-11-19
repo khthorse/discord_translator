@@ -10,7 +10,7 @@
     "dist": "npx --yes electron-builder@26.0.12 --win nsis"
   },
   "devDependencies": {
-    "electron": "^41.0.0"
+    "electron": "^42.11.16"
   },
   "build": {
     "appId": "com.wookie.translator.overlay",
@@ -44,5 +44,8 @@
       "shortcutName": "Wookie Translator",
       "deleteAppDataOnUninstall": false
     }
+  },
+  "allowScripts": {
+    "electron@41.10.7": true
   }
 }
