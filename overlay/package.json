@@ -22,6 +22,7 @@
       "main.js",
       "preload.js",
       "renderer/**/*",
+      "assets/**/*",
       "package.json"
     ],
     "win": {
@@ -51,12 +52,5 @@
   },
   "allowScripts": {
     "electron@41.10.7": true
-  },
-  "files": [
-    "main.js",
-    "preload.js",
-    "renderer/**/*",
-    "assets/**/*",
-    "package.json"
-  ]
+  }
 }
