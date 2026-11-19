@@ -30,6 +30,11 @@
         </div>
       </div>
 
+      <div id="clickThroughHint" class="click-through-hint hidden" aria-live="polite">
+        <span data-i18n="clickThroughHint">Click-through</span>
+        <kbd id="clickThroughShortcutHint">Ctrl + Shift + X</kbd>
+      </div>
+
       <div class="toolbar no-drag">
         <button id="modeButton" title="Switch display mode" data-i18n-title="titleSwitchMode">
           SUBTITLES
@@ -205,6 +210,12 @@
       </div>
 
       <div class="settings-section-title" data-i18n="subtitleMode">SUBTITLE MODE</div>
+
+      <div class="setting-group click-through-setting">
+        <label data-i18n="clickThroughShortcutLabel">CLICK-THROUGH SHORTCUT</label>
+        <button id="clickThroughShortcutInput" class="shortcut-input" type="button">Ctrl + Shift + X</button>
+        <p id="clickThroughShortcutStatus" class="settings-description" data-i18n="clickThroughShortcutDescription">Click the field and press your preferred key combination. This toggles click-through in subtitle mode.</p>
+      </div>
 
       <div class="setting-group">
 
