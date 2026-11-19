@@ -15,7 +15,9 @@ const relayConfigPath = path.join(app.getPath('userData'), 'relay-config.json');
 let relayConfig = {
   mode: 'discord',
   url: '',
-  encryptedToken: null
+  encryptedToken: null,
+  encryptedDiscordClientId: null,
+  encryptedDiscordClientSecret: null
 };
 let relaySocket = null;
 let relayReconnectTimer = null;
@@ -24,8 +26,8 @@ const recentMessageIds = new Map();
 let relayLanguages = [];
 
 
-const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
-const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
+let CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
+let CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || '';
 
 const REDIRECT_URI =
   process.env.DISCORD_REDIRECT_URI ||
@@ -193,12 +195,16 @@ function readRelayConfig() {
     relayConfig = {
       mode,
       url: typeof saved.url === 'string' ? saved.url : '',
-      encryptedToken: typeof saved.encryptedToken === 'string'
-        ? saved.encryptedToken
-        : null
+      encryptedToken: typeof saved.encryptedToken === 'string' ? saved.encryptedToken : null,
+      encryptedDiscordClientId: typeof saved.encryptedDiscordClientId === 'string' ? saved.encryptedDiscordClientId : null,
+      encryptedDiscordClientSecret: typeof saved.encryptedDiscordClientSecret === 'string' ? saved.encryptedDiscordClientSecret : null
     };
+    if (safeStorage.isEncryptionAvailable()) {
+      try { if (relayConfig.encryptedDiscordClientId) CLIENT_ID = safeStorage.decryptString(Buffer.from(relayConfig.encryptedDiscordClientId, 'base64')); } catch {}
+      try { if (relayConfig.encryptedDiscordClientSecret) CLIENT_SECRET = safeStorage.decryptString(Buffer.from(relayConfig.encryptedDiscordClientSecret, 'base64')); } catch {}
+    }
   } catch {
-    relayConfig = { mode: 'discord', url: '', encryptedToken: null };
+    relayConfig = { mode: 'discord', url: '', encryptedToken: null, encryptedDiscordClientId: null, encryptedDiscordClientSecret: null };
   }
 }
 
@@ -217,6 +223,14 @@ function saveRelayConfig(next) {
     : 'discord';
   const url = String(next?.url || '').trim();
   const token = String(next?.token || '').trim();
+  const discordClientId = String(next?.discordClientId || '').trim() || CLIENT_ID;
+  const discordClientSecret = String(next?.discordClientSecret || '').trim() || CLIENT_SECRET;
+
+  if (mode !== 'relay') {
+    if (!discordClientId || !discordClientSecret) {
+      throw new Error('Enter your Discord Client ID and Client Secret.');
+    }
+  }
 
   if (mode !== 'discord') {
     let parsed;
@@ -247,10 +261,17 @@ function saveRelayConfig(next) {
     ? safeStorage.encryptString(token).toString('base64')
     : relayConfig.encryptedToken;
 
-  const saved = { mode, url, encryptedToken };
+  if (!safeStorage.isEncryptionAvailable() && (discordClientId || discordClientSecret)) {
+    throw new Error('Windows secure storage is unavailable. Discord credentials were not saved.');
+  }
+  const encryptedDiscordClientId = discordClientId ? safeStorage.encryptString(discordClientId).toString('base64') : relayConfig.encryptedDiscordClientId;
+  const encryptedDiscordClientSecret = discordClientSecret ? safeStorage.encryptString(discordClientSecret).toString('base64') : relayConfig.encryptedDiscordClientSecret;
+  const saved = { mode, url, encryptedToken, encryptedDiscordClientId, encryptedDiscordClientSecret };
   fs.writeFileSync(relayConfigPath, JSON.stringify(saved, null, 2), { mode: 0o600 });
   relayConfig = saved;
-  return { mode, url, hasToken: Boolean(encryptedToken) };
+  CLIENT_ID = discordClientId;
+  CLIENT_SECRET = discordClientSecret;
+  return { mode, url, hasToken: Boolean(encryptedToken), hasDiscordCredentials: Boolean(encryptedDiscordClientId && encryptedDiscordClientSecret) };
 }
 
 function shouldUseDiscord() {
@@ -1188,7 +1209,8 @@ function createWindow() {
 ipcMain.handle('overlay:get-relay-config', () => ({
   mode: relayConfig.mode,
   url: relayConfig.url,
-  hasToken: Boolean(relayConfig.encryptedToken)
+  hasToken: Boolean(relayConfig.encryptedToken),
+  hasDiscordCredentials: Boolean(relayConfig.encryptedDiscordClientId && relayConfig.encryptedDiscordClientSecret)
 }));
 
 ipcMain.handle('overlay:save-relay-config', (_event, next) => {
