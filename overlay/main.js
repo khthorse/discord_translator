@@ -372,6 +372,14 @@ function connectRelay() {
       return;
     }
 
+    if (packet.type === 'languages') {
+      const languages = Array.isArray(packet.data) ? packet.data : [];
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('rpc:languages', languages);
+      }
+      return;
+    }
+
     if (packet.type === 'message') {
       publishIncomingMessage(packet.data);
     }
