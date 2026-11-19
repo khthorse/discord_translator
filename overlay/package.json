@@ -45,7 +45,8 @@
       "shortcutName": "Wookie Translator",
       "deleteAppDataOnUninstall": false,
       "installerIcon": "assets/Wookie_icon.ico",
-      "uninstallerIcon": "assets/Wookie_icon.ico"
+      "uninstallerIcon": "assets/Wookie_icon.ico",
+      "installerHeader": "assets/Wookie_banner_header.bmp"
     }
   },
   "allowScripts": {
