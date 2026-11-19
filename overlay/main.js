@@ -21,6 +21,7 @@ let relaySocket = null;
 let relayReconnectTimer = null;
 let relayReconnectAttempts = 0;
 const recentMessageIds = new Map();
+let relayLanguages = [];
 
 
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -374,6 +375,7 @@ function connectRelay() {
 
     if (packet.type === 'languages') {
       const languages = Array.isArray(packet.data) ? packet.data : [];
+      relayLanguages = languages;
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('rpc:languages', languages);
       }
@@ -895,6 +897,12 @@ function openSettingsView() {
     positionSettingsWindow();
     settingsWindow.show();
     settingsWindow.focus();
+  });
+
+  settingsWindow.webContents.once('did-finish-load', () => {
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send('rpc:languages', relayLanguages);
+    }
   });
 
   settingsWindow.on('closed', () => {
