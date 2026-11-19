@@ -65,6 +65,7 @@ from translators import build_translator
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "large-v3-turbo")
 WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cuda")
 WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "float16")
+WHISPER_BEAM_SIZE = max(1, int(os.getenv("WHISPER_BEAM_SIZE", "1")))
 HOST = os.getenv("SERVICE_HOST", "127.0.0.1")
 PORT = int(os.getenv("SERVICE_PORT", "8000"))
 
@@ -194,7 +195,7 @@ def process(
         segments, info = model.transcribe(
             audio,
             language=lang,
-            beam_size=5,
+            beam_size=WHISPER_BEAM_SIZE,
             vad_filter=True,
             condition_on_previous_text=False,
         )
@@ -357,6 +358,7 @@ def health():
     return {
         "ok": True,
         "model": WHISPER_MODEL,
+        "beam_size": WHISPER_BEAM_SIZE,
         "translator": type(translator).__name__,
         "max_concurrent_transcriptions": MAX_CONCURRENT_TRANSCRIPTIONS,
         "max_concurrent_translations": MAX_CONCURRENT_TRANSLATIONS,
