@@ -1,0 +1,23 @@
+{
+  "1386718647795585164": {
+    "inputLanguages": [
+      "en",
+      "es",
+      "no",
+      "de"
+    ],
+    "targetLanguages": [
+      "en",
+      "es"
+    ],
+    "liveLanguages": [
+      "en",
+      "es"
+    ],
+    "liveChannelId": "1569427583978709094",
+    "standardLanguages": [
+      "en",
+      "es"
+    ]
+  }
+}

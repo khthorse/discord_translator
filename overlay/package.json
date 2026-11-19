@@ -1,0 +1,56 @@
+{
+  "name": "wookie-overlay",
+  "version": "1.1.0",
+  "description": "Wookie Translator gaming overlay",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "pack": "npx --yes electron-builder@26.0.12 --win --dir",
+    "dist": "npx --yes electron-builder@26.0.12 --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^42.11.16"
+  },
+  "build": {
+    "appId": "com.wookie.translator.overlay",
+    "productName": "Wookie Translator",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Wookie-Translator-Setup-${version}.${ext}",
+      "icon": "assets/Wookie_icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Wookie Translator",
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "assets/Wookie_icon.ico",
+      "uninstallerIcon": "assets/Wookie_icon.ico",
+      "installerHeader": "assets/Wookie_banner.bmp"
+    }
+  },
+  "allowScripts": {
+    "electron@41.10.7": true
+  }
+}

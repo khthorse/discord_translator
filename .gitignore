@@ -4,3 +4,17 @@ __pycache__/
 .venv/
 voice-bot/recordings/
 tokens.txt
+
+# Downloaded Whisper models
+service/models/
+voice-bot/guild-languages.json
+voice-bot/translation-history.json
+
+# Local Python environments
+.venv/
+venv/
+service/wookie-translator/
+
+# Electron build output and generated installers
+overlay/release/
+overlay/dist/
