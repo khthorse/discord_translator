@@ -683,6 +683,7 @@ body.settings-window .settings-panel input {
 }
 
 .setting-group input[type="url"],
+.setting-group input[type="text"],
 .setting-group input[type="password"],
 .setting-group select {
   width: 100%;
@@ -696,6 +697,7 @@ body.settings-window .settings-panel input {
 }
 
 .setting-group input[type="url"]:focus,
+.setting-group input[type="text"]:focus,
 .setting-group input[type="password"]:focus,
 .setting-group select:focus {
   outline: none;
