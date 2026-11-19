@@ -191,6 +191,7 @@ export function startOverlayRelay() {
 
 export function setOverlayLanguages(languages) {
   if (!Array.isArray(languages)) return;
+  availableLanguages.clear();
   for (const item of languages) {
     const code = String(typeof item === 'string' ? item : item?.code || '').toLowerCase();
     if (!/^[a-z]{2,3}(?:-[a-z]{2})?$/.test(code)) continue;
