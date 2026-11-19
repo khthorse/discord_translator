@@ -145,25 +145,6 @@ def split_codes(value: str) -> list[str]:
     return seen
 
 
-def pick_language(audio, candidates: list[str]) -> str | None:
-    """Determine the spoken language from the configured candidates."""
-
-    if len(candidates) == 1:
-        return candidates[0]
-
-    try:
-        _, _, probs = model.detect_language(audio)
-        p = dict(probs)
-
-    except Exception as err:
-        print(f"Language detection failed, using auto-detect: {err}")
-        return None
-
-    pool = candidates or list(p)
-
-    return max(pool, key=lambda code: p.get(code, 0.0))
-
-
 def process(
     wav_bytes: bytes,
     speaker: str,
@@ -190,11 +171,14 @@ def process(
 
     try:
         stt_started = time.perf_counter()
-        lang = pick_language(audio, candidates)
+        # Let transcription perform its own language detection. Calling
+        # detect_language() separately first would run an additional encoder
+        # pass over every audio chunk.
+        requested_language = candidates[0] if len(candidates) == 1 else None
 
         segments, info = model.transcribe(
             audio,
-            language=lang,
+            language=requested_language,
             beam_size=WHISPER_BEAM_SIZE,
             vad_filter=True,
             condition_on_previous_text=False,
@@ -207,7 +191,14 @@ def process(
             if s.no_speech_prob < 0.7
         ).strip()
 
-        lang = lang or info.language
+        lang = info.language
+
+        # When several input languages are configured, preserve the existing
+        # preference for that configured set if Whisper detects another one.
+        if candidates and lang not in candidates:
+            probabilities = dict(info.all_language_probs or [])
+            lang = max(candidates, key=lambda code: probabilities.get(code, 0.0))
+
         stt_duration = time.perf_counter() - stt_started
     finally:
         transcription_slots.release()
