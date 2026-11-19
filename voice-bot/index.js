@@ -153,6 +153,7 @@ function saveGuildLanguageSettings() {
     guildLanguagesFile,
     JSON.stringify(guildLanguageSettings, null, 2) + '\n',
   );
+  refreshOverlayLanguages();
 }
 
 
