@@ -260,16 +260,25 @@ function shouldUseRelay() {
   return relayConfig.mode === 'relay' || relayConfig.mode === 'both';
 }
 
-function rememberMessage(messageId) {
+function rememberMessage(messageId, source) {
   if (!messageId) return false;
   const now = Date.now();
 
-  for (const [id, timestamp] of recentMessageIds) {
-    if (now - timestamp > 120000) recentMessageIds.delete(id);
+  for (const [id, entry] of recentMessageIds) {
+    if (now - entry.timestamp > 120000) recentMessageIds.delete(id);
   }
 
-  if (recentMessageIds.has(messageId)) return true;
-  recentMessageIds.set(messageId, now);
+  const entry = recentMessageIds.get(messageId);
+  if (entry) {
+    // A source may send successive edits for one Discord message. Keep those
+    // updates; suppress only the same message arriving from the other source.
+    if (entry.sources.has(source)) return false;
+    entry.sources.add(source);
+    entry.timestamp = now;
+    return true;
+  }
+
+  recentMessageIds.set(messageId, { timestamp: now, sources: new Set([source]) });
 
   while (recentMessageIds.size > 500) {
     recentMessageIds.delete(recentMessageIds.keys().next().value);
@@ -281,7 +290,9 @@ function rememberMessage(messageId) {
 function publishIncomingMessage(data) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (!data || typeof data !== 'object') return;
-  if (rememberMessage(String(data.messageId || ''))) return;
+
+  const source = data.source === 'relay' ? 'relay' : 'discord';
+  if (rememberMessage(String(data.messageId || ''), source)) return;
 
   mainWindow.webContents.send('rpc:message', {
     language: String(data.language || 'unknown'),
@@ -468,7 +479,8 @@ function publishMessage(channelId, message) {
     author: message.author?.username || 'Unknown',
     content: message.content || '',
     timestamp: message.timestamp || new Date().toISOString(),
-    messageId: message.id || ''
+    messageId: message.id || '',
+    source: 'discord'
   });
 }
 
