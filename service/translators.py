@@ -89,14 +89,8 @@ class OpenAICompatTranslator(Translator):
         tgt = LANGUAGE_NAMES.get(target, target)
 
         prompt = (
-            f"You are a professional {src} ({source}) to "
-            f"{tgt} ({target}) translator. "
-            f"Your goal is to accurately convey the meaning and "
-            f"nuances of the original {src} text while adhering "
-            f"to {tgt} grammar, vocabulary, and cultural sensitivities. "
-            f"Produce only the {tgt} translation, without any "
-            f"additional explanations or commentary. "
-            f"Please translate the following {src} text into {tgt}:\n\n\n"
+            f"Translate the following {src} text into natural {tgt}. "
+            f"Preserve its meaning and tone. Output only the translation.\n\n"
             f"{text}"
         )
 
