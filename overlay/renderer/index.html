@@ -26,19 +26,19 @@
 
         <div class="brand-text">
           <span class="brand-name">WOOKIE</span>
-          <span class="brand-subtitle">LIVE TRANSLATOR</span>
+          <span class="brand-subtitle" data-i18n="liveTranslator">LIVE TRANSLATOR</span>
         </div>
       </div>
 
       <div class="toolbar no-drag">
-        <button id="modeButton" title="Switch display mode">
+        <button id="modeButton" title="Switch display mode" data-i18n-title="titleSwitchMode">
           SUBTITLES
         </button>
 
-        <button id="settingsButton" title="Settings">⚙</button>
-        <button id="clearButton" title="Clear messages">⌫</button>
-        <button id="minimizeButton" title="Minimize">−</button>
-        <button id="closeButton" title="Close">×</button>
+        <button id="settingsButton" title="Settings" data-i18n-title="titleSettings">⚙</button>
+        <button id="clearButton" title="Clear messages" data-i18n-title="titleClear">⌫</button>
+        <button id="minimizeButton" title="Minimize" data-i18n-title="titleMinimize">−</button>
+        <button id="closeButton" title="Close" data-i18n-title="titleClose">×</button>
       </div>
 
     </header>
@@ -51,7 +51,7 @@
     <section id="hudContent" class="hud-content">
 
       <div class="messages-heading">
-        <span>LIVE TRANSLATIONS</span>
+        <span data-i18n="liveTranslations">LIVE TRANSLATIONS</span>
         <span id="messageCounter">0 MESSAGES</span>
       </div>
 
@@ -60,10 +60,10 @@
         <div class="empty-state">
           <div class="empty-icon">◈</div>
 
-          <strong>Waiting for translations</strong>
+          <strong data-i18n="waitingTranslations">Waiting for translations</strong>
 
           <span>
-            Messages from selected Discord channels will appear here.
+            <span data-i18n="emptyMessages">Messages from selected Discord channels will appear here.</span>
           </span>
         </div>
 
@@ -81,83 +81,87 @@
 
       <header class="settings-heading">
         <div>
-          <strong>WOOKIE SETTINGS</strong>
+          <strong data-i18n="settingsTitle">WOOKIE SETTINGS</strong>
           <div class="settings-heading-subtitle">
-            Configure your translation overlay
+            <span data-i18n="settingsSubtitle">Configure your translation overlay</span>
           </div>
         </div>
 
-        <button id="closeSettingsButton" title="Back to overlay">
+        <button id="closeSettingsButton" title="Back to overlay" data-i18n-title="titleBack">
           ×
         </button>
       </header>
 
       <div class="setting-group">
 
-        <label>DISPLAY MODE</label>
+        <label for="uiLanguage" data-i18n="interfaceLanguage">INTERFACE LANGUAGE</label>
+        <select id="uiLanguage"><option value="en">English</option><option value="es">Español</option></select>
+
+      </div>
+
+      <div class="setting-group">
+
+        <label data-i18n="displayMode">DISPLAY MODE</label>
 
         <div class="setting-buttons">
-          <button id="hudModeButton">HUD</button>
-          <button id="subtitleModeButton">SUBTITLES</button>
+          <button id="hudModeButton" data-i18n="hud">HUD</button>
+          <button id="subtitleModeButton" data-i18n="subtitles">SUBTITLES</button>
         </div>
 
       </div>
 
-      <div class="settings-section-title">CONNECTION SOURCE</div>
+      <div class="settings-section-title" data-i18n="connectionSource">CONNECTION SOURCE</div>
 
       <div class="setting-group">
-        <label for="connectionMode">MESSAGE SOURCE</label>
+        <label for="connectionMode" data-i18n="messageSource">MESSAGE SOURCE</label>
         <select id="connectionMode">
-          <option value="discord">Discord (existing)</option>
-          <option value="relay">Relay (friends)</option>
-          <option value="both">Both (test / deduplicate)</option>
+          <option value="discord" data-i18n="discordExisting">Discord (existing)</option>
+          <option value="relay" data-i18n="relayFriends">Relay (friends)</option>
+          <option value="both" data-i18n="bothSources">Both (test / deduplicate)</option>
         </select>
-        <p class="settings-description">
-          Discord keeps using the Discord desktop app. Relay receives messages from the host PC.
-          Both listens to both and filters matching Discord message IDs.
-        </p>
+        <p class="settings-description"><span data-i18n="connectionDescription">Discord keeps using the Discord desktop app. Relay receives messages from the host PC.</span> <span data-i18n="connectionDescription2">Both listens to both and filters matching Discord message IDs.</span></p>
       </div>
 
       <div class="setting-group">
-        <label for="relayUrl">RELAY WEBSOCKET URL</label>
+        <label for="relayUrl" data-i18n="relayUrl">RELAY WEBSOCKET URL</label>
         <input id="relayUrl" type="url" placeholder="wss://your-tunnel.example/overlay">
       </div>
 
       <div class="setting-group">
-        <label for="relayToken">PERSONAL RELAY ACCESS TOKEN</label>
-        <input id="relayToken" type="password" autocomplete="off" placeholder="Paste your private token">
+        <label for="relayToken" data-i18n="relayToken">PERSONAL RELAY ACCESS TOKEN</label>
+        <input id="relayToken" type="password" autocomplete="off" placeholder="Paste your private token" data-i18n-placeholder="tokenPlaceholder">
         <p id="relayCredentialStatus" class="settings-description">
-          Token is stored using Windows secure storage and is never shown again.
+          <span data-i18n="tokenSecure">Token is stored using Windows secure storage and is never shown again.</span>
         </p>
       </div>
 
       <div class="setting-group">
-        <button id="saveRelaySettingsButton" class="reset-button">SAVE CONNECTION SETTINGS</button>
+        <button id="saveRelaySettingsButton" class="reset-button" data-i18n="saveConnection">SAVE CONNECTION SETTINGS</button>
         <p id="relaySettingsStatus" class="settings-description" aria-live="polite"></p>
       </div>
 
       <div class="setting-group">
 
-        <label>TRANSLATION LANGUAGES</label>
+        <label data-i18n="translationLanguages">TRANSLATION LANGUAGES</label>
 
         <label class="check-label">
           <input type="checkbox" id="languageEn" checked>
-          🇺🇸 English
+          🇺🇸 <span data-i18n="english">English</span>
         </label>
 
         <label class="check-label">
           <input type="checkbox" id="languageEs" checked>
-          🇪🇸 Spanish
+          🇪🇸 <span data-i18n="spanish">Spanish</span>
         </label>
 
       </div>
 
-      <div class="settings-section-title">GAMING HUD</div>
+      <div class="settings-section-title" data-i18n="gamingHud">GAMING HUD</div>
 
       <div class="setting-group">
 
         <label for="hudBackgroundSlider">
-          HUD BACKGROUND OPACITY
+          <span data-i18n="hudBackgroundOpacity">HUD BACKGROUND OPACITY</span>
           <span id="hudBackgroundValue">84%</span>
         </label>
 
@@ -174,7 +178,7 @@
       <div class="setting-group">
 
         <label for="hudFontSlider">
-          HUD FONT SIZE
+          <span data-i18n="hudFontSize">HUD FONT SIZE</span>
           <span id="hudFontValue">13px</span>
         </label>
 
@@ -192,18 +196,18 @@
 
         <label class="check-label">
           <input type="checkbox" id="autoScroll" checked>
-          Auto-scroll in HUD mode
+          <span data-i18n="autoScroll">Auto-scroll in HUD mode</span>
         </label>
 
       </div>
 
-      <div class="settings-section-title">SUBTITLE MODE</div>
+      <div class="settings-section-title" data-i18n="subtitleMode">SUBTITLE MODE</div>
 
       <div class="setting-group">
 
         <label class="check-label">
           <input type="checkbox" id="subtitleTransparent" checked>
-          Hide window background until hovered
+          <span data-i18n="hideBackground">Hide window background until hovered</span>
         </label>
 
       </div>
@@ -211,7 +215,7 @@
       <div class="setting-group">
 
         <label for="subtitleWindowSlider">
-          HOVER WINDOW BACKGROUND OPACITY
+          <span data-i18n="hoverBackgroundOpacity">HOVER WINDOW BACKGROUND OPACITY</span>
           <span id="subtitleWindowValue">78%</span>
         </label>
 
@@ -228,7 +232,7 @@
       <div class="setting-group">
 
         <label for="bubbleOpacitySlider">
-          SUBTITLE BUBBLE OPACITY
+          <span data-i18n="subtitleBubbleOpacity">SUBTITLE BUBBLE OPACITY</span>
           <span id="bubbleOpacityValue">78%</span>
         </label>
 
@@ -245,7 +249,7 @@
       <div class="setting-group">
 
         <label for="subtitleFontSlider">
-          SUBTITLE FONT SIZE
+          <span data-i18n="subtitleFontSize">SUBTITLE FONT SIZE</span>
           <span id="subtitleFontValue">15px</span>
         </label>
 
@@ -262,7 +266,7 @@
       <div class="setting-group">
 
         <label for="durationSlider">
-          SUBTITLE DISPLAY TIME
+          <span data-i18n="subtitleDisplayTime">SUBTITLE DISPLAY TIME</span>
           <span id="durationValue">12s</span>
         </label>
 
@@ -280,7 +284,7 @@
 
         <label class="check-label">
           <input type="checkbox" id="subtitleFade" checked>
-          Gradually fade older subtitles
+          <span data-i18n="fadeOlderSubtitles">Gradually fade older subtitles</span>
         </label>
 
       </div>
@@ -288,7 +292,7 @@
       <div class="setting-group">
 
         <label for="mergePauseSlider">
-          MESSAGE ACCUMULATION PAUSE
+          <span data-i18n="messageAccumulationPause">MESSAGE ACCUMULATION PAUSE</span>
           <span id="mergePauseValue">5s</span>
         </label>
 
@@ -301,17 +305,14 @@
           value="5"
         >
 
-        <p class="settings-description">
-          How long to wait between messages from the same speaker
-          before starting a new subtitle bubble.
-        </p>
+        <p class="settings-description"><span data-i18n="mergePauseDescription">How long to wait between messages from the same speaker before starting a new subtitle bubble.</span></p>
 
       </div>
 
       <div class="setting-group">
 
         <label for="subtitleWidthSlider">
-          SUBTITLE WINDOW WIDTH
+          <span data-i18n="subtitleWindowWidth">SUBTITLE WINDOW WIDTH</span>
           <span id="subtitleWidthValue">680px</span>
         </label>
 
@@ -326,12 +327,12 @@
 
       </div>
 
-      <div class="settings-section-title">GENERAL</div>
+      <div class="settings-section-title" data-i18n="general">GENERAL</div>
 
       <div class="setting-group">
 
         <label for="historySlider">
-          MESSAGE HISTORY LIMIT
+          <span data-i18n="messageHistoryLimit">MESSAGE HISTORY LIMIT</span>
           <span id="historyValue">30</span>
         </label>
 
@@ -349,34 +350,31 @@
 
         <label class="check-label">
           <input type="checkbox" id="positionLock">
-          Lock window position
+          <span data-i18n="lockWindowPosition">Lock window position</span>
         </label>
 
       </div>
 
-      <div class="settings-section-title">WINDOWS</div>
+      <div class="settings-section-title" data-i18n="windows">WINDOWS</div>
 
       <div class="setting-group">
 
-        <p class="settings-description">
-          HUD and subtitle window sizes are saved separately.
-          Resetting restores their default dimensions.
-        </p>
+        <p class="settings-description"><span data-i18n="windowSizeDescription">HUD and subtitle window sizes are saved separately. Resetting restores their default dimensions.</span></p>
 
         <button id="resetWindowSizesButton" class="reset-button">
-          RESTORE DEFAULT WINDOW SIZES
+          <span data-i18n="restoreWindowSizes">RESTORE DEFAULT WINDOW SIZES</span>
         </button>
 
       </div>
 
       <footer class="settings-footer">
-        Settings are saved automatically.
+        <span data-i18n="settingsAutoSaved">Settings are saved automatically.</span>
       </footer>
 
     </section>
 
     <footer id="overlayFooter" class="footer">
-      <span>WOOKIE TRANSLATOR</span>
+      <span data-i18n="wookieTranslator">WOOKIE TRANSLATOR</span>
       <span id="footerMode">GAMING HUD</span>
     </footer>
 
