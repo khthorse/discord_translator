@@ -172,8 +172,8 @@ function applyTranslations() {
   document.querySelectorAll('[data-i18n]').forEach(element => {
     const node = Array.from(element.childNodes).find(item => item.nodeType === Node.TEXT_NODE && item.textContent.trim());
     if (node) {
-      const lead = node.textContent.match(/^\\s*/)?.[0] || '';
-      const tail = node.textContent.match(/\\s*$/)?.[0] || '';
+      const lead = node.textContent.match(/^\s*/)?.[0] || '';
+      const tail = node.textContent.match(/\s*$/)?.[0] || '';
       node.textContent = lead + translate(element.dataset.i18n) + tail;
     } else element.textContent = translate(element.dataset.i18n);
   });
