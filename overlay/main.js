@@ -377,6 +377,9 @@ function connectRelay() {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('rpc:languages', languages);
       }
+      if (settingsWindow && !settingsWindow.isDestroyed()) {
+        settingsWindow.webContents.send('rpc:languages', languages);
+      }
       return;
     }
 
