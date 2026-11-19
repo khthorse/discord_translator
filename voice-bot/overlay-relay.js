@@ -224,7 +224,7 @@ export function broadcastOverlayMessage(message) {
     type: 'message',
     data: {
       language,
-      channelName: String(message.channelName || name).slice(0, 40),
+      channelName: name.slice(0, 40),
       languageName: name,
       flag,
       author: String(message.author || 'Unknown').slice(0, 100),
