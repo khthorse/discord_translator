@@ -15,6 +15,12 @@ contextBridge.exposeInMainWorld('wookie', {
     });
   },
 
+  onLanguages(callback) {
+    ipcRenderer.on('rpc:languages', (_event, languages) => {
+      callback(languages);
+    });
+  },
+
   onStatus(callback) {
     ipcRenderer.on('rpc:status', (_event, status) => {
       callback(status);
