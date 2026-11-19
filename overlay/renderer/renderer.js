@@ -1071,6 +1071,7 @@ if (!settingsOnly && topbar) {
 
 if (!settingsOnly) {
   window.wookie.onClickThroughChanged(enabled => {
+    overlay.classList.toggle('click-through-active', Boolean(enabled));
     clickThroughHint.classList.toggle('active', Boolean(enabled));
     clickThroughHint.classList.toggle('hidden', settings.mode !== 'subtitle');
   });
