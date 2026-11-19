@@ -260,7 +260,7 @@ function shouldUseRelay() {
   return relayConfig.mode === 'relay' || relayConfig.mode === 'both';
 }
 
-function rememberMessage(messageId, source) {
+function rememberMessage(messageId, content) {
   if (!messageId) return false;
   const now = Date.now();
 
@@ -270,15 +270,19 @@ function rememberMessage(messageId, source) {
 
   const entry = recentMessageIds.get(messageId);
   if (entry) {
-    // A source may send successive edits for one Discord message. Keep those
-    // updates; suppress only the same message arriving from the other source.
-    if (entry.sources.has(source)) return false;
-    entry.sources.add(source);
+    // Both transports carry the same Discord message ID. Suppress an exact
+    // duplicate, but allow later edits when the accumulated text changes.
+    if (entry.content === content) {
+      entry.timestamp = now;
+      return true;
+    }
+
+    entry.content = content;
     entry.timestamp = now;
-    return true;
+    return false;
   }
 
-  recentMessageIds.set(messageId, { timestamp: now, sources: new Set([source]) });
+  recentMessageIds.set(messageId, { timestamp: now, content });
 
   while (recentMessageIds.size > 500) {
     recentMessageIds.delete(recentMessageIds.keys().next().value);
@@ -291,15 +295,15 @@ function publishIncomingMessage(data) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (!data || typeof data !== 'object') return;
 
-  const source = data.source === 'relay' ? 'relay' : 'discord';
-  if (rememberMessage(String(data.messageId || ''), source)) return;
+  const content = String(data.content || '');
+  if (rememberMessage(String(data.messageId || ''), content)) return;
 
   mainWindow.webContents.send('rpc:message', {
     language: String(data.language || 'unknown'),
     channelName: String(data.channelName || 'Translations'),
     flag: String(data.flag || '🌐'),
     author: String(data.author || 'Unknown'),
-    content: String(data.content || ''),
+    content,
     timestamp: data.timestamp || new Date().toISOString(),
     messageId: String(data.messageId || '')
   });
