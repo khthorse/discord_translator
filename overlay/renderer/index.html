@@ -13,7 +13,7 @@
   <title>Wookie Translator</title>
 
   <link rel="stylesheet" href="style.css">
-</head>
+<style>.setting-group[hidden], #relaySettingsGroup[hidden] { display: none !important; }</style>\n</head>
 
 <body>
 
@@ -122,17 +122,27 @@
         <p class="settings-description"><span data-i18n="connectionDescription">Discord keeps using the Discord desktop app. Relay receives messages from the host PC.</span> <span data-i18n="connectionDescription2">Both listens to both and filters matching Discord message IDs.</span></p>
       </div>
 
-      <div class="setting-group">
-        <label for="relayUrl" data-i18n="relayUrl">RELAY WEBSOCKET URL</label>
-        <input id="relayUrl" type="url" placeholder="wss://your-tunnel.example/overlay">
+      <div id="discordSettingsGroup" class="setting-group">
+        <label for="discordClientId" data-i18n="discordClientId">DISCORD CLIENT ID</label>
+        <input id="discordClientId" type="text" autocomplete="off" placeholder="Enter your Discord application Client ID">
+        <label for="discordClientSecret" data-i18n="discordClientSecret">DISCORD CLIENT SECRET</label>
+        <input id="discordClientSecret" type="password" autocomplete="off" placeholder="Enter your Discord application Client Secret">
+        <p id="discordCredentialStatus" class="settings-description"></p>
       </div>
 
-      <div class="setting-group">
-        <label for="relayToken" data-i18n="relayToken">PERSONAL RELAY ACCESS TOKEN</label>
-        <input id="relayToken" type="password" autocomplete="off" placeholder="Paste your private token" data-i18n-placeholder="tokenPlaceholder">
-        <p id="relayCredentialStatus" class="settings-description">
-          <span data-i18n="tokenSecure"><span data-i18n="tokenSecure">Token is stored using Windows secure storage and is never shown again.</span></span>
-        </p>
+      <div id="relaySettingsGroup">
+        <div class="setting-group">
+          <label for="relayUrl" data-i18n="relayUrl">RELAY WEBSOCKET URL</label>
+          <input id="relayUrl" type="url" placeholder="wss://your-tunnel.example/overlay">
+        </div>
+
+        <div class="setting-group">
+          <label for="relayToken" data-i18n="relayToken">PERSONAL RELAY ACCESS TOKEN</label>
+          <input id="relayToken" type="password" autocomplete="off" placeholder="Paste your private token" data-i18n-placeholder="tokenPlaceholder">
+          <p id="relayCredentialStatus" class="settings-description">
+            <span data-i18n="tokenSecure">Token is stored using Windows secure storage and is never shown again.</span>
+          </p>
+        </div>
       </div>
 
       <div class="setting-group">
