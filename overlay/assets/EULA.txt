@@ -1,0 +1,59 @@
+WOOKIE TRANSLATOR
+END USER LICENCE AGREEMENT
+Version 1.1.0
+Effective date: 19 November 2026
+
+PLEASE READ THIS AGREEMENT BEFORE INSTALLING OR USING WOOKIE TRANSLATOR.
+
+By selecting "I Agree" during installation or otherwise using the software, you agree to these terms. If you do not agree, do not install or use the software.
+
+1. LICENCE GRANT
+
+Wookie Translator is provided free of charge for personal, non-commercial use. The developer grants you a limited, non-exclusive, non-transferable and revocable licence to install and use the application on devices you own or are authorized to use. This agreement does not transfer ownership of the software.
+
+2. PERMITTED USE
+
+You may install and use Wookie Translator for personal purposes, including while gaming, communicating or participating in online communities. You may configure supported connections and translation languages and make personal backup copies.
+
+3. RESTRICTIONS
+
+Without prior written permission from the copyright holder, you may not sell, commercially distribute, sublicense, share or republish copies of the installer or application, or distribute modified versions. You may not remove copyright or ownership notices. You may not reverse-engineer or attempt to extract proprietary source code, except where applicable law permits this. You may not use the software to violate another person's rights or applicable laws.
+
+Nothing in this agreement restricts rights that cannot legally be restricted under applicable law.
+
+4. THIRD-PARTY SERVICES AND COMPONENTS
+
+Wookie Translator may interact with third-party applications and services, including Discord, translation providers and locally hosted services. Those services are governed by their own terms and privacy policies. The developer does not control third-party service availability, functionality or policies. Third-party software components bundled with Wookie Translator remain subject to their respective licences.
+
+5. PRIVACY AND DATA
+
+Depending on your configuration, Wookie Translator may process audio, transcripts, translated text, Discord information and connection credentials. Information may be transmitted to services or computers that you configure. You are responsible for understanding your configuration and obtaining any permissions required before processing or sharing other people's communications.
+
+See PRIVACY.md in the project repository for information about the application's data handling.
+
+6. UPDATES
+
+The developer may release updates, improvements or changes to Wookie Translator. There is no guarantee that updates, compatibility or continued availability will be provided.
+
+7. DISCLAIMER OF WARRANTIES
+
+Wookie Translator is provided "AS IS" and "AS AVAILABLE", to the extent permitted by applicable law. The developer does not guarantee that the software will be uninterrupted, error-free or compatible with every system.
+
+8. LIMITATION OF LIABILITY
+
+To the extent permitted by applicable law, the developer is not liable for indirect or consequential losses arising from the use of or inability to use the software. Nothing in this agreement excludes liability that cannot legally be excluded or limited.
+
+9. TERMINATION
+
+If you materially violate this agreement, your permission to use Wookie Translator may be terminated. Upon termination, you must stop using the software and remove your copies to the extent permitted by applicable law.
+
+10. CHANGES TO THIS AGREEMENT
+
+Revised versions may be published with an updated effective date and version number.
+
+11. CONTACT
+
+For questions about this agreement, licensing or permissions, use:
+https://github.com/khthorse/discord_translator/issues
+
+By selecting "I Agree", you acknowledge that you have read and accepted this agreement.
