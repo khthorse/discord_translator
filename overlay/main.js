@@ -69,6 +69,9 @@ let reconnectTimer = null;
 let reconnectAttempts = 0;
 
 let currentMode = 'hud';
+let clickThroughEnabled = false;
+let pointerOnTopbar = false;
+let clickThroughShortcut = 'Control+Shift+X';
 
 let modeBounds = {
   hud: { ...DEFAULT_MODE_BOUNDS.hud },
@@ -825,11 +828,36 @@ function setMode(mode) {
     currentMode
   );
 
+  applyClickThroughState();
   scheduleSavePosition();
 }
 
 function toggleMode() {
   setMode(currentMode === 'hud' ? 'subtitle' : 'hud');
+}
+
+function applyClickThroughState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const ignore = clickThroughEnabled && currentMode === 'subtitle' && !pointerOnTopbar;
+  mainWindow.setIgnoreMouseEvents(ignore, { forward: true });
+  mainWindow.webContents.send('overlay:click-through-changed', clickThroughEnabled);
+}
+
+function toggleClickThrough() {
+  clickThroughEnabled = !clickThroughEnabled;
+  applyClickThroughState();
+}
+
+function registerClickThroughShortcut(accelerator) {
+  const next = typeof accelerator === 'string' ? accelerator.trim() : '';
+  if (!next || next.length > 80 || /[\\r\\n]/.test(next)) return { ok: false, error: 'Enter a valid keyboard shortcut.' };
+  if (next === 'Control+Shift+W' || next === 'Control+Shift+S') return { ok: false, error: 'That shortcut is already used by another overlay action.' };
+  if (next === clickThroughShortcut) return { ok: true, shortcut: clickThroughShortcut };
+  const registered = globalShortcut.register(next, toggleClickThrough);
+  if (!registered) return { ok: false, error: 'That shortcut is unavailable or already in use.' };
+  if (clickThroughShortcut) globalShortcut.unregister(clickThroughShortcut);
+  clickThroughShortcut = next;
+  return { ok: true, shortcut: clickThroughShortcut };
 }
 
 function toggleVisibility() {
@@ -1203,6 +1231,8 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    clickThroughEnabled = false;
+    pointerOnTopbar = false;
   });
 }
 
@@ -1228,6 +1258,15 @@ ipcMain.handle('overlay:save-relay-config', (_event, next) => {
 // Move the frameless overlay manually so the title bar can receive real
 // hover events. Chromium's -webkit-app-region: drag suppresses those events.
 let activeWindowDrag = null;
+
+ipcMain.on('overlay:click-through-hover', (_event, hovered) => {
+  pointerOnTopbar = Boolean(hovered);
+  applyClickThroughState();
+});
+
+ipcMain.handle('overlay:set-click-through-shortcut', (_event, accelerator) => {
+  return registerClickThroughShortcut(accelerator);
+});
 
 ipcMain.on('overlay:drag-start', (_event, point) => {
   if (!mainWindow || mainWindow.isDestroyed() || !point) return;
@@ -1317,6 +1356,8 @@ app.whenReady().then(() => {
     'Control+Shift+S',
     toggleMode
   );
+
+  globalShortcut.register(clickThroughShortcut, toggleClickThrough);
 });
 
 app.on('before-quit', () => {
