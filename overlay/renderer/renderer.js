@@ -1,4 +1,5 @@
 const settingsOnly = new URLSearchParams(window.location.search).get('settings') === '1';
+const uiLanguageSelect = document.getElementById('uiLanguage');
 const overlay = document.getElementById('overlay');
 const topbar = document.querySelector('.topbar');
 
@@ -93,6 +94,7 @@ const positionLockCheckbox = document.getElementById('positionLock');
 
 const DEFAULT_SETTINGS = {
   mode: 'hud',
+  uiLanguage: 'en',
   languages: ['en', 'es'],
   historyLimit: 30,
   autoScroll: true,
@@ -158,6 +160,27 @@ function loadSettings() {
 
 let settings = loadSettings();
 
+const UI_TEXT = {"en":{"interfaceLanguage":"INTERFACE LANGUAGE","displayMode":"DISPLAY MODE","hud":"HUD","subtitles":"SUBTITLES","connectionSource":"CONNECTION SOURCE","messageSource":"MESSAGE SOURCE","discordExisting":"Discord (existing)","relayFriends":"Relay (friends)","bothSources":"Both (test / deduplicate)","connectionDescription":"Discord uses the Discord desktop app. Relay receives messages from the host PC.","connectionDescription2":"Both listens to both and filters matching Discord message IDs.","relayUrl":"RELAY WEBSOCKET URL","relayToken":"PERSONAL RELAY ACCESS TOKEN","tokenPlaceholder":"Paste your private token","tokenSecure":"Token is stored using Windows secure storage and is never shown again.","saveConnection":"SAVE CONNECTION SETTINGS","translationLanguages":"TRANSLATION LANGUAGES","english":"English","spanish":"Spanish","gamingHud":"GAMING HUD","hudBackgroundOpacity":"HUD BACKGROUND OPACITY","hudFontSize":"HUD FONT SIZE","autoScroll":"Auto-scroll in HUD mode","subtitleMode":"SUBTITLE MODE","hideBackground":"Hide window background until hovered","hoverBackgroundOpacity":"HOVER WINDOW BACKGROUND OPACITY","subtitleBubbleOpacity":"SUBTITLE BUBBLE OPACITY","subtitleFontSize":"SUBTITLE FONT SIZE","subtitleDisplayTime":"SUBTITLE DISPLAY TIME","fadeOlderSubtitles":"Gradually fade older subtitles","messageAccumulationPause":"MESSAGE ACCUMULATION PAUSE","mergePauseDescription":"How long to wait between messages from the same speaker before starting a new subtitle bubble.","subtitleWindowWidth":"SUBTITLE WINDOW WIDTH","general":"GENERAL","messageHistoryLimit":"MESSAGE HISTORY LIMIT","lockWindowPosition":"Lock window position","windows":"WINDOWS","windowSizeDescription":"HUD and subtitle window sizes are saved separately. Resetting restores their default dimensions.","restoreWindowSizes":"RESTORE DEFAULT WINDOW SIZES","settingsAutoSaved":"Settings are saved automatically.","liveTranslator":"LIVE TRANSLATOR","liveTranslations":"LIVE TRANSLATIONS","waitingTranslations":"Waiting for translations","emptyMessages":"Messages from selected Discord channels will appear here.","settingsTitle":"WOOKIE SETTINGS","settingsSubtitle":"Configure your translation overlay","wookieTranslator":"WOOKIE TRANSLATOR","titleSwitchMode":"Switch display mode","titleSettings":"Settings","titleClear":"Clear messages","titleMinimize":"Minimize","titleClose":"Close","titleBack":"Back to overlay"},"es":{"interfaceLanguage":"IDIOMA DE LA INTERFAZ","displayMode":"MODO DE VISUALIZACIÓN","hud":"HUD","subtitles":"SUBTÍTULOS","connectionSource":"FUENTE DE CONEXIÓN","messageSource":"ORIGEN DE LOS MENSAJES","discordExisting":"Discord (actual)","relayFriends":"Relay (amigos)","bothSources":"Ambos (prueba / eliminar duplicados)","connectionDescription":"Discord utiliza la aplicación de escritorio de Discord. Relay recibe mensajes del PC anfitrión.","connectionDescription2":"Ambos escucha las dos fuentes y filtra los mensajes de Discord duplicados.","relayUrl":"URL DE WEBSOCKET DE RELAY","relayToken":"TOKEN PERSONAL DE ACCESO A RELAY","tokenPlaceholder":"Pega tu token privado","tokenSecure":"El token se guarda de forma segura en Windows y no volverá a mostrarse.","saveConnection":"GUARDAR AJUSTES DE CONEXIÓN","translationLanguages":"IDIOMAS DE TRADUCCIÓN","english":"Inglés","spanish":"Español","gamingHud":"HUD PARA JUEGOS","hudBackgroundOpacity":"OPACIDAD DEL FONDO DEL HUD","hudFontSize":"TAMAÑO DE FUENTE DEL HUD","autoScroll":"Desplazamiento automático en modo HUD","subtitleMode":"MODO DE SUBTÍTULOS","hideBackground":"Ocultar el fondo de la ventana hasta pasar el cursor","hoverBackgroundOpacity":"OPACIDAD DEL FONDO AL PASAR EL CURSOR","subtitleBubbleOpacity":"OPACIDAD DE LOS GLOBOS DE SUBTÍTULOS","subtitleFontSize":"TAMAÑO DE FUENTE DE LOS SUBTÍTULOS","subtitleDisplayTime":"DURACIÓN DE LOS SUBTÍTULOS","fadeOlderSubtitles":"Desvanecer gradualmente los subtítulos anteriores","messageAccumulationPause":"PAUSA ENTRE MENSAJES","mergePauseDescription":"Tiempo de espera entre mensajes del mismo hablante antes de crear un nuevo globo de subtítulos.","subtitleWindowWidth":"ANCHO DE LA VENTANA DE SUBTÍTULOS","general":"GENERAL","messageHistoryLimit":"LÍMITE DEL HISTORIAL DE MENSAJES","lockWindowPosition":"Bloquear la posición de la ventana","windows":"VENTANAS","windowSizeDescription":"Los tamaños de las ventanas HUD y de subtítulos se guardan por separado. Al restablecerlos, se recuperan sus dimensiones predeterminadas.","restoreWindowSizes":"RESTABLECER TAMAÑOS PREDETERMINADOS","settingsAutoSaved":"Los ajustes se guardan automáticamente.","liveTranslator":"TRADUCTOR EN DIRECTO","liveTranslations":"TRADUCCIONES EN DIRECTO","waitingTranslations":"Esperando traducciones","emptyMessages":"Los mensajes de los canales de Discord seleccionados aparecerán aquí.","settingsTitle":"AJUSTES DE WOOKIE","settingsSubtitle":"Configura tu superposición de traducción","wookieTranslator":"TRADUCTOR WOOKIE","titleSwitchMode":"Cambiar modo de visualización","titleSettings":"Ajustes","titleClear":"Borrar mensajes","titleMinimize":"Minimizar","titleClose":"Cerrar","titleBack":"Volver a la superposición"}};
+function translate(key) {
+  const lang = settings.uiLanguage === 'es' ? 'es' : 'en';
+  return UI_TEXT[lang][key] || UI_TEXT.en[key] || key;
+}
+function applyTranslations() {
+  const lang = settings.uiLanguage === 'es' ? 'es' : 'en';
+  document.documentElement.lang = lang;
+  uiLanguageSelect.value = lang;
+  document.querySelectorAll('[data-i18n]').forEach(element => {
+    const node = Array.from(element.childNodes).find(item => item.nodeType === Node.TEXT_NODE && item.textContent.trim());
+    if (node) {
+      const lead = node.textContent.match(/^\\s*/)?.[0] || '';
+      const tail = node.textContent.match(/\\s*$/)?.[0] || '';
+      node.textContent = lead + translate(element.dataset.i18n) + tail;
+    } else element.textContent = translate(element.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(element => element.title = translate(element.dataset.i18nTitle));
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(element => element.placeholder = translate(element.dataset.i18nPlaceholder));
+}
+
 let messageStore = [];
 let subtitleGroups = [];
 let subtitleTimers = [];
@@ -189,6 +212,7 @@ function clearSubtitleTimers() {
 /* Apply settings */
 
 function applySettings() {
+  applyTranslations();
   document.documentElement.style.setProperty(
     '--hud-background-opacity',
     String(settings.hud.backgroundOpacity / 100)
@@ -296,16 +320,12 @@ function setMode(mode, notifyMain = true) {
     overlay.classList.remove('window-resizing');
   }
 
-  modeButton.textContent = isSubtitle
-    ? 'HUD MODE'
-    : 'SUBTITLES';
+  modeButton.textContent = isSubtitle ? (settings.uiLanguage === 'es' ? 'MODO HUD' : 'HUD MODE') : translate('subtitles');
 
   hudModeButton.classList.toggle('active', !isSubtitle);
   subtitleModeButton.classList.toggle('active', isSubtitle);
 
-  footerMode.textContent = isSubtitle
-    ? 'SUBTITLE MODE'
-    : 'GAMING HUD';
+  footerMode.textContent = isSubtitle ? (settings.uiLanguage === 'es' ? 'MODO SUBTÍTULOS' : 'SUBTITLE MODE') : translate('gamingHud');
 
   if (!settingsOpen) {
     hudContent.classList.toggle('hidden', isSubtitle);
@@ -532,11 +552,11 @@ function renderHud() {
     icon.textContent = '◈';
 
     const title = document.createElement('strong');
-    title.textContent = 'Waiting for translations';
+    title.textContent = translate('waitingTranslations');
 
     const description = document.createElement('span');
     description.textContent =
-      'Messages from your selected Discord channels will appear here.';
+      translate('emptyMessages');
 
     empty.append(icon, title, description);
     messagesContainer.appendChild(empty);
@@ -546,8 +566,7 @@ function renderHud() {
     }
   }
 
-  messageCounter.textContent =
-    `${visibleMessages.length} MESSAGES`;
+  messageCounter.textContent = settings.uiLanguage === 'es' ? `${visibleMessages.length} MENSAJES` : `${visibleMessages.length} MESSAGES`;
 
   if (settings.autoScroll) {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -680,6 +699,13 @@ saveRelaySettingsButton.addEventListener('click', async () => {
 });
 
 void loadRelaySettings();
+
+uiLanguageSelect.addEventListener('change', () => {
+  settings.uiLanguage = uiLanguageSelect.value === 'es' ? 'es' : 'en';
+  saveSettings();
+  applySettings();
+  void loadRelaySettings();
+});
 
 /* Language filters */
 
