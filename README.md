@@ -344,6 +344,36 @@ The overlay has two ways to receive subtitles:
 The overlay defaults to Discord mode. For a simpler setup that does not require Discord RPC
 credentials on each overlay PC, use Relay mode and configure the host relay below.
 
+### Build a Windows installer (.exe)
+
+The overlay can be packaged as a normal Windows desktop application. This installer
+contains the Electron overlay only; the Discord voice bot, Python transcription service,
+Ollama, and any host relay must still be running separately where your setup needs them.
+
+From PowerShell:
+
+```powershell
+cd overlay
+npm install
+npm run dist
+```
+
+The first build downloads the Windows packaging tool, so an internet connection is needed.
+The installer will be created at:
+
+```text
+overlay/release/Wookie-Translator-Setup-1.1.0.exe
+```
+
+Run the installer to install Wookie Translator. It creates Start Menu and desktop shortcuts
+and keeps the user's settings when the app is uninstalled. To create an unpacked test build
+instead of an installer, run `npm run pack`; the app folder will be in
+`overlay/release/win-unpacked/`.
+
+This is an unsigned first build. Windows may show its normal publisher/SmartScreen warning
+because the app has not been code-signed. Do not distribute it as a trusted public release
+until the installer is tested and code signing is arranged.
+
 ### Host: enable the authenticated relay
 
 1. Generate a unique token for each person who should connect. Run this in PowerShell:
