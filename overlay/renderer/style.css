@@ -892,3 +892,14 @@ body.settings-window .overlay.subtitle-mode.subtitle-transparent:hover {
 #relaySettingsGroup[hidden] {
   display: none !important;
 }
+
+
+/* Click-through shortcut hint and settings control */
+.click-through-hint { display:inline-flex; align-items:center; gap:7px; margin-right:auto; padding:5px 8px; color:#a9b9c8; font-size:9px; font-weight:700; letter-spacing:.3px; border-radius:5px; background:rgba(5,9,15,.48); pointer-events:none; opacity:.8; }
+.click-through-hint.hidden { display:none !important; }
+.click-through-hint kbd { color:#e7f4ff; font:inherit; letter-spacing:.2px; }
+.click-through-hint.active { color:#9ee8c1; background:rgba(20,70,52,.72); }
+.overlay.subtitle-mode .topbar .click-through-hint { opacity:1; }
+.shortcut-input { width:100%; padding:10px 12px; color:#e7f4ff; font-size:12px; font-weight:700; text-align:left; background:rgba(255,255,255,.07); border:1px solid rgba(145,175,205,.2); border-radius:6px; cursor:pointer; }
+.shortcut-input.recording { border-color:var(--accent); color:var(--accent); }
+.overlay.subtitle-mode .toolbar { margin-left:8px; }
