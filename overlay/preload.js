@@ -41,6 +41,18 @@ contextBridge.exposeInMainWorld('wookie', {
     ipcRenderer.on('overlay:request-subtitle-resize', callback);
   },
 
+  onClickThroughChanged(callback) {
+    ipcRenderer.on('overlay:click-through-changed', (_event, enabled) => callback(enabled));
+  },
+
+  setClickThroughHover(hovered) {
+    ipcRenderer.send('overlay:click-through-hover', Boolean(hovered));
+  },
+
+  setClickThroughShortcut(shortcut) {
+    return ipcRenderer.invoke('overlay:set-click-through-shortcut', shortcut);
+  },
+
   onWindowResizing(callback) {
     ipcRenderer.on('overlay:window-resizing', (_event, resizing) => {
       callback(resizing);
