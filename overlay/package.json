@@ -33,7 +33,8 @@
           ]
         }
       ],
-      "artifactName": "Wookie-Translator-Setup-${version}.${ext}"
+      "artifactName": "Wookie-Translator-Setup-${version}.${ext}",
+      "icon": "assets/Wookie_icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -42,10 +43,19 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Wookie Translator",
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "assets/Wookie_icon.ico",
+      "uninstallerIcon": "assets/Wookie_icon.ico"
     }
   },
   "allowScripts": {
     "electron@41.10.7": true
-  }
+  },
+  "files": [
+    "main.js",
+    "preload.js",
+    "renderer/**/*",
+    "assets/**/*",
+    "package.json"
+  ]
 }
