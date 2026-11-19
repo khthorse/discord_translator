@@ -5,6 +5,17 @@ A Discord bot that listens to human speakers in a voice channel, transcribes spe
 the results to public Discord text channels. The repository also includes an optional
 desktop subtitle overlay.
 
+## Project licence and privacy
+
+Wookie Translator's original application and project code are proprietary. The software
+is offered free of charge for personal, non-commercial use under the terms in
+[`LICENSE`](LICENSE) and [`EULA.md`](EULA.md). Do not assume that making this repository
+public grants permission to redistribute, modify or commercially use the project.
+
+See [`PRIVACY.md`](PRIVACY.md) for an overview of audio, transcript, relay and third-party
+service data flows. The operator of each self-hosted installation is responsible for
+providing appropriate notice and obtaining any required permissions or consent.
+
 ## What is included
 
 - **`service/`** — Python FastAPI service for speech recognition and text/audio translation.
@@ -365,14 +376,23 @@ The installer will be created at:
 overlay/release/Wookie-Translator-Setup-1.1.0.exe
 ```
 
+The installer displays the Wookie Translator End User Licence Agreement (EULA). Users
+must accept it before installation can continue. The agreement is also available at
+`EULA.md`; the proprietary personal-use licence is in `LICENSE`, and the data-handling
+notice is in `PRIVACY.md`.
+
+The software is free for personal, non-commercial use. Redistribution, commercial use,
+and distribution of modified versions require prior written permission, subject to rights
+that cannot legally be restricted. Third-party components retain their own licences.
+
 Run the installer to install Wookie Translator. It creates Start Menu and desktop shortcuts
 and keeps the user's settings when the app is uninstalled. To create an unpacked test build
 instead of an installer, run `npm run pack`; the app folder will be in
 `overlay/release/win-unpacked/`.
 
-This is an unsigned first build. Windows may show its normal publisher/SmartScreen warning
-because the app has not been code-signed. Do not distribute it as a trusted public release
-until the installer is tested and code signing is arranged.
+This installer is not code-signed. Windows may show its normal publisher/SmartScreen
+warning. A software licence does not replace a code-signing certificate or remove Windows
+publisher warnings.
 
 ### Host: enable the authenticated relay
 
