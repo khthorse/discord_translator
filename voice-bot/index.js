@@ -17,7 +17,7 @@ import {
 } from '@discordjs/voice';
 import prism from 'prism-media';
 import { pcmToWav } from './wav.js';
-import { broadcastOverlayMessage, startOverlayRelay, stopOverlayRelay } from './overlay-relay.js';
+import { broadcastOverlayMessage, setOverlayLanguages, startOverlayRelay, stopOverlayRelay } from './overlay-relay.js';
 import { handleTranslateInteraction } from './text-translation.js';
 
 // ---------------------------------------------------------------- config ---
@@ -62,8 +62,6 @@ const guildLanguagesFile = new URL('./guild-languages.json', import.meta.url);
 
 if (recordWav) fs.mkdirSync('recordings', { recursive: true });
 
-startOverlayRelay();
-
 // -------------------------------------------------------------- state ---
 
 /** @type {Map<string, {connection: import('@discordjs/voice').VoiceConnection, guild: import('discord.js').Guild, active: Set<string>, queue: Promise<void>}>} */
@@ -98,6 +96,23 @@ let guildLanguageSettings = readJsonFile(
   guildLanguagesFile,
   'guild-languages.json',
 );
+
+function refreshOverlayLanguages() {
+  const languages = new Set(['en', 'es']);
+  for (const settings of Object.values(guildLanguageSettings)) {
+    for (const language of settings?.targetLanguages || []) {
+      languages.add(language);
+    }
+  }
+  setOverlayLanguages([...languages].map(code => ({
+    code,
+    name: new Intl.DisplayNames(['en'], { type: 'language' }).of(code) || code.toUpperCase(),
+    flag: languageFlag(code),
+  })));
+}
+
+refreshOverlayLanguages();
+startOverlayRelay();
 
 
 function defaultGuildSettings() {
