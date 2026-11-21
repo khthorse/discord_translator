@@ -1,6 +1,8 @@
 
 import './env.js';
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   Client,
   Events,
@@ -57,10 +59,13 @@ const recordWav = RECORD_WAV === 'true';
 const messageDeleteSeconds = Math.max(0, Number(MESSAGE_DELETE_SECONDS) || 0);
 const maxConcurrentUtterances = Math.max(1, Number(MAX_CONCURRENT_UTTERANCES) || 3);
 
-const languageChannelsFile = new URL('./language-channels.json', import.meta.url);
-const guildLanguagesFile = new URL('./guild-languages.json', import.meta.url);
+const dataDir = process.env.DATA_DIR || fileURLToPath(new URL('.', import.meta.url));
+fs.mkdirSync(dataDir, { recursive: true });
 
-if (recordWav) fs.mkdirSync('recordings', { recursive: true });
+const languageChannelsFile = path.join(dataDir, 'language-channels.json');
+const guildLanguagesFile = path.join(dataDir, 'guild-languages.json');
+
+if (recordWav) fs.mkdirSync(path.join(dataDir, 'recordings'), { recursive: true });
 
 // -------------------------------------------------------------- state ---
 
@@ -1130,7 +1135,7 @@ async function handleUtterance(session, userId, pcm, turn, previousOutput, relea
     const wav = pcmToWav(pcm, SAMPLE_RATE, CHANNELS);
 
     if (recordWav) {
-      const file = `recordings/${Date.now()}-${userId}.wav`;
+      const file = path.join(dataDir, 'recordings', `${Date.now()}-${userId}.wav`);
       fs.writeFileSync(file, wav);
       console.log(`Saved ${file} (${(durationMs / 1000).toFixed(1)} s)`);
     }
