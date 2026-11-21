@@ -78,7 +78,7 @@ services:
       SERVICE_URL: http://whisper:8000
       DATA_DIR: /data
       OVERLAY_RELAY_HOST: 0.0.0.0
-      OVERLAY_RELAY_PORT: 8765
+      OVERLAY_RELAY_PORT: ${OVERLAY_RELAY_PORT:-8765}
     volumes:
       - ./data/voice-bot:/data
     depends_on:

@@ -52,7 +52,7 @@ const maxMs = Math.max(1000, Number(MAX_UTTERANCE_MS) || 8000);
 const minUtteranceBytes = minMs * BYTES_PER_MS;
 const maxUtteranceBytes = maxMs * BYTES_PER_MS;
 const segmentSearchBytes = Math.max(0, Number(SEGMENT_SEARCH_MS) || 1200) * BYTES_PER_MS;
-const segmentMinBytes = Math.max(1000, Number(SEGMENT_MIN_MS) || 4000) * BYTES_PER_MS;
+const segmentMinBytes = Math.max(1000, Number(SEGMENT_MIN_MS) || 2500) * BYTES_PER_MS;
 const segmentQuietRms = Math.max(0, Number(SEGMENT_QUIET_RMS) || 700);
 const showOriginal = SHOW_ORIGINAL === 'true';
 const recordWav = RECORD_WAV === 'true';
