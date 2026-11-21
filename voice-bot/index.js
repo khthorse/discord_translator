@@ -96,11 +96,15 @@ function readJsonFile(file, description) {
 // Existing language-channel assignments are kept separate and untouched.
 let languageChannels = readJsonFile(languageChannelsFile, 'language-channels.json');
 
-function saveLanguageChannels() {
+function saveLanguageChannels(guildId) {
   fs.writeFileSync(
     languageChannelsFile,
     JSON.stringify(languageChannels, null, 2) + '\n',
   );
+  if (guildId && guildLanguageSettings[guildId]) {
+    guildLanguageSettings[guildId].ignoredSetupWarnings = (guildLanguageSettings[guildId].ignoredSetupWarnings || []).filter(id => id !== 'output-channels');
+    saveGuildLanguageSettings();
+  }
 }
 
 // New per-server language settings.
@@ -522,7 +526,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) return interaction.update({ content: `I need View Channel + Send Messages permissions in <#${channel.id}>. Choose another channel.`, components: setupComponents(settings, interaction.guildId) });
         languageChannels[interaction.guildId] ??= {};
         languageChannels[interaction.guildId][language] = channel.id;
-        saveLanguageChannels();
+        saveLanguageChannels(interaction.guildId);
         saveSetupStep(interaction.guildId, settings, 'outputs', { outputLanguage: null });
         return interaction.update({ content: `Assigned **${languageDisplayName(language)}** to <#${channel.id}>. Choose another language or continue.`, components: setupComponents(settings, interaction.guildId) });
       }
@@ -565,7 +569,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!languageChannels[interaction.guildId]?.[language]) return interaction.update({ content: 'That mapping no longer exists.', components: [] });
       delete languageChannels[interaction.guildId][language];
       if (!Object.keys(languageChannels[interaction.guildId]).length) delete languageChannels[interaction.guildId];
-      saveLanguageChannels();
+      saveLanguageChannels(interaction.guildId);
       return interaction.update({ content: `Removed the output channel mapping for **${languageDisplayName(language)}**.`, components: [] });
     }
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('language-channel:assign:')) {
@@ -583,7 +587,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       languageChannels[interaction.guildId] ??= {};
       languageChannels[interaction.guildId][language] = channel.id;
-      saveLanguageChannels();
+      saveLanguageChannels(interaction.guildId);
       return interaction.update({ content: `Speech and translations in **${languageDisplayName(language)}** will be posted in <#${channel.id}>.`, components: [] });
     }
     if (interaction.isStringSelectMenu() && interaction.customId === 'user-setup:languages') {
@@ -979,6 +983,7 @@ async function onLanguage(interaction) {
       if (!settings.targetLanguages.includes(code)) settings.targetLanguages.push(code);
     }
     settings.translationOutputsStatus = 'configured';
+    settings.ignoredSetupWarnings = settings.ignoredSetupWarnings.filter(id => !['target-languages', 'output-channels'].includes(id));
     saveGuildLanguageSettings();
     return interaction.reply({
       content: `Standard pair set to **${first} ↔ ${second}**. Both languages are enabled as translation targets.`,
@@ -1038,6 +1043,8 @@ async function onLanguage(interaction) {
 
     languages.push(language);
     if (group === 'target') settings.translationOutputsStatus = 'configured';
+    const warningIds = group === 'input' ? ['input-languages'] : group === 'target' ? ['target-languages', 'output-channels'] : [];
+    settings.ignoredSetupWarnings = settings.ignoredSetupWarnings.filter(id => !warningIds.includes(id));
     saveGuildLanguageSettings();
 
     return interaction.reply({
@@ -1077,6 +1084,8 @@ async function onLanguage(interaction) {
       );
       settings.translationOutputsStatus = settings.targetLanguages.length ? 'configured' : 'not-configured';
     }
+    const warningIds = group === 'input' ? ['input-languages'] : group === 'target' ? ['target-languages', 'output-channels'] : [];
+    settings.ignoredSetupWarnings = settings.ignoredSetupWarnings.filter(id => !warningIds.includes(id));
 
     saveGuildLanguageSettings();
 
