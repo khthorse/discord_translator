@@ -151,6 +151,7 @@ def process(
     candidates: list[str],
     targets: list[str],
     expected_languages: list[str],
+    language_hint: str,
     translate_from: str,
     translate_enabled: bool,
 ) -> dict:
@@ -175,7 +176,13 @@ def process(
         # Let transcription perform its own language detection. Calling
         # detect_language() separately first would run an additional encoder
         # pass over every audio chunk.
-        requested_language = candidates[0] if len(candidates) == 1 else None
+        allowed_languages = expected_languages or candidates
+        requested_language = (
+            language_hint
+            if language_hint in allowed_languages
+            else allowed_languages[0] if len(allowed_languages) == 1
+            else None
+        )
 
         segments, info = model.transcribe(
             audio,
@@ -198,7 +205,6 @@ def process(
         # candidate list. If Whisper's automatic detection falls outside that
         # set, use its language probabilities to choose the best allowed
         # language and perform one corrected transcription (not one per option).
-        allowed_languages = expected_languages or candidates
         if allowed_languages and lang not in allowed_languages:
             probabilities = dict(info.all_language_probs or [])
             corrected_language = max(
@@ -220,7 +226,7 @@ def process(
                 ).strip()
                 if corrected_text:
                     text = corrected_text
-                    lang = corrected_info.language
+                    lang = corrected_language
 
         stt_duration = time.perf_counter() - stt_started
     finally:
@@ -287,6 +293,7 @@ async def process_endpoint(
     candidates: str = "",
     targets: str = "",
     expected_languages: str = "",
+    language_hint: str = "",
     translate_from: str = "",
     translate: bool = True,
 ):
@@ -305,6 +312,7 @@ async def process_endpoint(
         split_codes(candidates),
         split_codes(targets),
         split_codes(expected_languages),
+        language_hint.strip().lower(),
         translate_from.strip().lower(),
         translate,
     )
