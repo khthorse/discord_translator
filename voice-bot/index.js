@@ -9,6 +9,10 @@ import {
   GatewayIntentBits,
   MessageFlags,
   PermissionFlagsBits,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  StringSelectMenuBuilder,
   escapeMarkdown,
 } from 'discord.js';
 import {
@@ -64,6 +68,7 @@ fs.mkdirSync(dataDir, { recursive: true });
 
 const languageChannelsFile = path.join(dataDir, 'language-channels.json');
 const guildLanguagesFile = path.join(dataDir, 'guild-languages.json');
+const userLanguagePreferencesFile = path.join(dataDir, 'user-language-preferences.json');
 
 if (recordWav) fs.mkdirSync(path.join(dataDir, 'recordings'), { recursive: true });
 
@@ -159,6 +164,46 @@ function saveGuildLanguageSettings() {
     JSON.stringify(guildLanguageSettings, null, 2) + '\n',
   );
   refreshOverlayLanguages();
+}
+
+// Per-member preferences are scoped to a guild and stored separately from
+// server-wide language settings.
+let userLanguagePreferences = readJsonFile(userLanguagePreferencesFile, 'user-language-preferences.json');
+
+function getUserLanguagePreferences(guildId, userId) {
+  return userLanguagePreferences[guildId]?.[userId] ?? [];
+}
+
+function saveUserLanguagePreferences(guildId, userId, languages) {
+  userLanguagePreferences[guildId] ??= {};
+  if (languages.length) {
+    userLanguagePreferences[guildId][userId] = [...new Set(languages)];
+  } else {
+    delete userLanguagePreferences[guildId][userId];
+    if (!Object.keys(userLanguagePreferences[guildId]).length) delete userLanguagePreferences[guildId];
+  }
+  fs.writeFileSync(userLanguagePreferencesFile, JSON.stringify(userLanguagePreferences, null, 2) + '\n');
+}
+
+function languageDisplayName(code) {
+  return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) || code;
+}
+
+function userSetupComponents(settings, selected) {
+  const allowed = settings.inputLanguages.slice(0, 25);
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId('user-setup:languages')
+    .setPlaceholder('Choose the languages you speak')
+    .setMinValues(1)
+    .setMaxValues(allowed.length)
+    .addOptions(allowed.map(code => ({ label: languageDisplayName(code), value: code, default: selected.includes(code) })));
+  return [
+    new ActionRowBuilder().addComponents(menu),
+    new ActionRowBuilder().addComponents(new ButtonBuilder()
+      .setCustomId('user-setup:automatic')
+      .setLabel('Use automatic detection')
+      .setStyle(ButtonStyle.Secondary)),
+  ];
 }
 
 
@@ -309,9 +354,28 @@ client.once(Events.ClientReady, (c) => {
 // -------------------------------------------------------------- commands ---
 
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isChatInputCommand() || !interaction.inGuild()) return;
+  if (!interaction.inGuild()) return;
 
   try {
+    if (interaction.isStringSelectMenu() && interaction.customId === 'user-setup:languages') {
+      const settings = getGuildSettings(interaction.guildId);
+      const selected = interaction.values.filter(code => settings.inputLanguages.includes(code));
+      saveUserLanguagePreferences(interaction.guildId, interaction.user.id, selected);
+      return interaction.update({ content: `Your expected spoken languages are now: **${selected.map(languageDisplayName).join(', ')}**.`, components: userSetupComponents(settings, selected) });
+    }
+    if (interaction.isButton() && interaction.customId === 'user-setup:automatic') {
+      saveUserLanguagePreferences(interaction.guildId, interaction.user.id, []);
+      return interaction.update({ content: 'Automatic language detection is enabled for you. Your personal preferences have been cleared.', components: [] });
+    }
+    if (!interaction.isChatInputCommand()) return;
+
+    if (interaction.commandName === 'user-setup') {
+      const settings = getGuildSettings(interaction.guildId);
+      if (!settings.inputLanguages.length) return interaction.reply({ content: 'This server has not enabled any input languages yet. Ask a server admin to configure them with /language input add.', flags: MessageFlags.Ephemeral });
+      const selected = getUserLanguagePreferences(interaction.guildId, interaction.user.id).filter(code => settings.inputLanguages.includes(code));
+      return interaction.reply({ content: selected.length ? `Your current expected languages: **${selected.map(languageDisplayName).join(', ')}**. Select the languages you normally speak.` : 'You are currently using automatic detection. Select the languages you normally speak; you can choose more than one.', components: userSetupComponents(settings, selected), flags: MessageFlags.Ephemeral });
+    }
+
     if (interaction.commandName === 'join') {
       await onJoin(interaction);
     } else if (interaction.commandName === 'leave') {
@@ -1147,6 +1211,8 @@ async function handleUtterance(session, userId, pcm, turn, previousOutput, relea
       const params = new URLSearchParams({
         speaker: userId,
         candidates: settings.inputLanguages.join(','),
+        expected_languages: getUserLanguagePreferences(session.guild.id, userId)
+          .filter(language => settings.inputLanguages.includes(language)).join(','),
         targets: settings.targetLanguages.join(','),
         translate: settings.targetLanguages.length > 0 ? 'true' : 'false',
       });
