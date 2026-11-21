@@ -180,6 +180,12 @@ Uvicorn running on http://127.0.0.1:8000
 Check that the service responds by opening **http://127.0.0.1:8000/health** in a browser.
 The health endpoint reports the loaded model, translator, and concurrency settings.
 
+Run the deterministic language-selection unit tests from the project root with:
+
+```powershell
+py -3.11 -m unittest discover -s service
+```
+
 ### Optional: run Whisper on the CPU instead
 
 The service supports CPU Whisper without changing application code. In the root `.env`,
