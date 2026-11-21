@@ -519,8 +519,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const id = interaction.customId;
       if (id === 'setup:automatic-input') {
         settings.inputLanguages = [];
-        saveSetupStep(interaction.guildId, settings, 'target');
-        return interaction.update({ content: '**Step 2 of 4 — Translation output languages**\nChoose which languages the bot can translate speech into. Select as many as you need, then press Continue. These are the languages used for translated output, not the languages members speak.', components: setupComponents(settings, interaction.guildId) });
+        saveSetupStep(interaction.guildId, settings, 'input');
+        return interaction.update({ content: '**Step 1 of 4 — Spoken languages**\nUnrestricted automatic detection is selected. Whisper can identify supported spoken languages without a server-side language restriction. Press Continue when you are ready for the next step.', components: setupComponents(settings, interaction.guildId) });
       }
       if (id === 'setup:input') {
         settings.inputLanguages = [...interaction.values];
@@ -535,8 +535,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         settings.targetLanguages = [];
         settings.translationOutputsStatus = 'disabled';
         settings.liveLanguages = [];
-        saveSetupStep(interaction.guildId, settings, 'outputs');
-        return interaction.update({ content: '**Step 3 of 4 — Output channels**\nTranslation outputs are disabled, so there are no language channels to assign. Press Continue to configure the combined live feed or finish setup.', components: setupComponents(settings, interaction.guildId) });
+        saveSetupStep(interaction.guildId, settings, 'target');
+        return interaction.update({ content: '**Step 2 of 4 — Translation output languages**\nTranslation outputs are disabled. Press Continue to skip individual output-channel assignments and configure the combined live feed, or choose languages from the menu to enable translated outputs.', components: setupComponents(settings, interaction.guildId) });
       }
       if (id === 'setup:target') {
         settings.targetLanguages = [...interaction.values];
@@ -546,7 +546,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.update({ content: `**Step 2 of 4 — Translation output languages**\nChoose the languages the bot can translate speech into. Your selection is saved automatically; press Continue when ready.\nSelected: ${settings.targetLanguages.map(languageDisplayName).join(', ')}`, components: setupComponents(settings, interaction.guildId) });
       }
       if (id === 'setup:continue-target') {
-        if (!settings.targetLanguages.length) return interaction.reply({ content: 'Choose at least one translation output language, or use Disable translation outputs.', flags: MessageFlags.Ephemeral });
+        if (!settings.targetLanguages.length && settings.translationOutputsStatus !== 'disabled') return interaction.reply({ content: 'Choose at least one translation output language, or use Disable translation outputs.', flags: MessageFlags.Ephemeral });
         saveSetupStep(interaction.guildId, settings, 'outputs');
         return interaction.update({ content: '**Step 3 of 4 — Output channels**\nAssign a Discord text channel for each translation language. Choose a language, then choose its channel. You can leave languages unassigned for now. Press Done assigning channels when finished.', components: setupComponents(settings, interaction.guildId) });
       }
