@@ -397,8 +397,7 @@ async function appendTurnMessage(turn, key, channel, prefix, text) {
       return current.message;
     }
   }
-  const message = await sendBotMessage(channel, content);
-  if (message) turn.messages.set(key, { message, text: nextText });
+  const message = await sendBotMessage(channel, content);  if (message) turn.messages.set(key, { message, text: nextText });
   return message;
 }
 
@@ -797,8 +796,7 @@ async function clearBotMessages(guild) {
       .map(([, name]) => name);
 
     if (missingPermissions.length) {
-      const detail = `Missing permissions in #${channel.name}: ${missingPermissions.join(', ')}.`;      console.warn(detail);
-      report.errors.push(detail);
+      const detail = `Missing permissions in #${channel.name}: ${missingPermissions.join(', ')}.`;      console.warn(detail);      report.errors.push(detail);
     }
 
     let before;
@@ -1237,23 +1235,7 @@ function enqueueUtterance(session, userId, pcm, turn) {
     console.error(`Cannot enqueue utterance for ${userId}: missing capture turn.`);
     return;
   }
-r(`Capture failed for ${userId}:`, err.message);
-    } finally {
-      session.active.delete(userId);
-      if (session.activeCaptureBySpeaker.get(userId) === capture) {
-        session.activeCaptureBySpeaker.delete(userId);
-      }
-    }
-  });
-}
 
-function enqueueUtterance(session, userId, pcm) {
-  const turn = session.latestTurnBySpeaker.get(userId) ?? {
-    messages: new Map(),
-    liveOriginal: '',
-    liveTranslations: new Map(),
-  };
-  session.latestTurnBySpeaker.set(userId, turn);
   const previous = session.speakerQueues.get(userId) ?? Promise.resolve();
 
   // Reserve output order when audio is captured, not when transcription ends.
@@ -1282,6 +1264,7 @@ function enqueueUtterance(session, userId, pcm) {
     }
   });
 }
+
 function runWithSessionLimit(session, job) {
   return new Promise((resolve, reject) => {
     const queuedAt = Date.now();
