@@ -463,7 +463,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const settings = getGuildSettings(interaction.guildId);
       settings.ignoredSetupWarnings = getSetupWarnings(interaction.guildId).map(item => item.id);
       saveGuildLanguageSettings();
-      return interaction.update({ content: `Setup reminders for the current warnings are paused. Run /setup whenever you want to review the configuration again.\\n\\n${setupStatusMessage(interaction.guildId)}`, components: [] });
+      return interaction.update({ content: `Setup reminders for the current warnings are paused. Run /setup whenever you want to review the configuration again.\n\n${setupStatusMessage(interaction.guildId)}`, components: [] });
     }
     if (interaction.isButton() && interaction.customId === 'setup:start') {
       if (!hasManageServerPermission(interaction)) return interaction.reply({ content: 'You need the Manage Server permission to configure this server.', flags: MessageFlags.Ephemeral });
