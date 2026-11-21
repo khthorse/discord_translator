@@ -247,8 +247,8 @@ function getSetupWarnings(guildId) {
 function setupStatusMessage(guildId) {
   const warnings = getSetupWarnings(guildId);
   const status = setupSummary(guildId);
-  if (!warnings.length) return `${status}\\n\\nSetup checks look good.`;
-  return `${status}\\n\\n**Needs attention**\\n${warnings.map(item => `• ${item.text}`).join('\\n')}`;
+  if (!warnings.length) return `${status}\n\nSetup checks look good.`;
+  return `${status}\n\n**Needs attention**\n${warnings.map(item => `• ${item.text}`).join('\n')}`;
 }
 
 function setupComponents(settings, guildId) {
@@ -443,7 +443,7 @@ client.on(Events.GuildCreate, async (guild) => {
       new ButtonBuilder().setCustomId('setup:start').setLabel('Configure server').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId('setup:ignore-warnings').setLabel('Ignore these reminders').setStyle(ButtonStyle.Secondary),
     )] : [];
-    await channel.send({ content: `Thanks for adding the translation bot!\\n\\n${setupStatusMessage(guild.id)}\\n\\nAdmins can run /setup to configure the server.`, components, allowedMentions: { parse: [] } });
+    await channel.send({ content: `Thanks for adding the translation bot!\n\n${setupStatusMessage(guild.id)}\n\nAdmins can run /setup to configure the server.`, components, allowedMentions: { parse: [] } });
   } catch (err) {
     console.error(`Could not post setup guidance in ${guild.id}:`, err);
   }
