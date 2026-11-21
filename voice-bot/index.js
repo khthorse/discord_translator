@@ -135,6 +135,7 @@ function defaultGuildSettings() {
     liveLanguages: ['en', 'es'],
     liveChannelId: null,
     liveFeedStatus: 'not-configured',
+    translationOutputsStatus: 'configured',
     ignoredSetupWarnings: [],
   };
 }
@@ -154,6 +155,7 @@ function getGuildSettings(guildId) {
   settings.liveLanguages ??= ['en', 'es'];
   settings.liveChannelId ??= null;
   settings.liveFeedStatus ??= settings.liveChannelId ? 'configured' : 'not-configured';
+  settings.translationOutputsStatus ??= settings.targetLanguages.length ? 'configured' : 'not-configured';
   settings.ignoredSetupWarnings ??= [];
 
   // Live languages must always be enabled translation targets.
@@ -220,12 +222,12 @@ function setupSummary(guildId) {
   const settings = getGuildSettings(guildId);
   const mappings = languageChannels[guildId] || {};
   const outputLines = settings.targetLanguages.map(code =>
-    `• ${languageDisplayName(code)}: ${mappings[code] ? `<#${mappings[code]}>` : 'not assigned'}`,
+    `• ${languageDisplayName(code)}: ${mappings[code] ? `<#${mappings[code]}>` : settings.ignoredSetupWarnings.includes('output-channels') ? 'ignored for now' : 'not assigned'}`,
   );
   return [
     '**Server setup summary**',
     `Input languages: ${settings.inputLanguages.length ? settings.inputLanguages.map(languageDisplayName).join(', ') : 'none'}`,
-    `Output languages: ${settings.targetLanguages.length ? settings.targetLanguages.map(languageDisplayName).join(', ') : 'none'}`,
+    `Output languages: ${settings.targetLanguages.length ? settings.targetLanguages.map(languageDisplayName).join(', ') : settings.translationOutputsStatus === 'disabled' ? 'disabled intentionally' : 'none / not configured'}`,
     ...outputLines,
     `Live translations: ${settings.liveChannelId ? `<#${settings.liveChannelId}>` : settings.liveFeedStatus === 'disabled' ? 'disabled intentionally' : settings.ignoredSetupWarnings.includes('live-channel') ? 'ignored for now' : 'not configured'}`,
   ].join('\n');
@@ -239,7 +241,7 @@ function getSetupWarnings(guildId) {
   if (!settings.inputLanguages.length) warnings.push({ id: 'input-languages', text: 'No input languages are restricted; Whisper will use automatic language detection.' });
   const missingOutputs = settings.targetLanguages.filter(code => !mappings[code]);
   if (missingOutputs.length) warnings.push({ id: 'output-channels', text: `No output channel assigned for: ${missingOutputs.map(languageDisplayName).join(', ')}.` });
-  if (!settings.targetLanguages.length) warnings.push({ id: 'target-languages', text: 'No translation output languages are enabled.' });
+  if (!settings.targetLanguages.length && settings.translationOutputsStatus !== 'disabled') warnings.push({ id: 'target-languages', text: 'No translation output languages are enabled.' });
   if (!settings.liveChannelId && settings.liveFeedStatus !== 'disabled') warnings.push({ id: 'live-channel', text: 'The combined live translations channel is not configured.' });
   return warnings.filter(item => !settings.ignoredSetupWarnings.includes(item.id));
 }
@@ -489,12 +491,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       if (id === 'setup:no-targets') {
         settings.targetLanguages = [];
+        settings.translationOutputsStatus = 'disabled';
         settings.liveLanguages = [];
         saveSetupStep(interaction.guildId, settings, 'outputs');
         return interaction.update({ content: 'Translation outputs are disabled. Continue to the live-feed step or finish setup.', components: setupComponents(settings, interaction.guildId) });
       }
       if (id === 'setup:target') {
         settings.targetLanguages = [...interaction.values];
+        settings.translationOutputsStatus = 'configured';
         settings.liveLanguages = settings.liveLanguages.filter(code => settings.targetLanguages.includes(code));
         saveSetupStep(interaction.guildId, settings, 'outputs');
         return interaction.update({ content: 'Step 3 of 4: assign an output channel to each language. Choose a language, then choose its channel. You can leave any language unassigned for now.', components: setupComponents(settings, interaction.guildId) });
