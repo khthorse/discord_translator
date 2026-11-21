@@ -227,7 +227,7 @@ function setupSummary(guildId) {
     `Input languages: ${settings.inputLanguages.length ? settings.inputLanguages.map(languageDisplayName).join(', ') : 'none'}`,
     `Output languages: ${settings.targetLanguages.length ? settings.targetLanguages.map(languageDisplayName).join(', ') : 'none'}`,
     ...outputLines,
-    `Live translations: ${settings.liveChannelId ? `<#${settings.liveChannelId}>` : 'disabled / not configured'}`,
+    `Live translations: ${settings.liveChannelId ? `<#${settings.liveChannelId}>` : settings.liveFeedStatus === 'disabled' ? 'disabled intentionally' : settings.ignoredSetupWarnings.includes('live-channel') ? 'ignored for now' : 'not configured'}`,
   ].join('\n');
 }
 
@@ -265,6 +265,7 @@ function setupComponents(settings, guildId) {
       .addOptions(languages.map(code => ({ label: languageDisplayName(code), value: code, default: selected.includes(code) })));
     const rows = [new ActionRowBuilder().addComponents(menu)];
     if (isInput) rows.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:automatic-input').setLabel('Use unrestricted automatic detection').setStyle(ButtonStyle.Secondary)));
+    if (!isInput) rows.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:no-targets').setLabel('Disable translation outputs').setStyle(ButtonStyle.Secondary)));
     return rows;
   }
   if (progress.step === 'outputs') {
@@ -486,6 +487,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         saveSetupStep(interaction.guildId, settings, 'target');
         return interaction.update({ content: 'Step 2 of 4: choose the languages the bot should translate into.', components: setupComponents(settings, interaction.guildId) });
       }
+      if (id === 'setup:no-targets') {
+        settings.targetLanguages = [];
+        settings.liveLanguages = [];
+        saveSetupStep(interaction.guildId, settings, 'outputs');
+        return interaction.update({ content: 'Translation outputs are disabled. Continue to the live-feed step or finish setup.', components: setupComponents(settings, interaction.guildId) });
+      }
       if (id === 'setup:target') {
         settings.targetLanguages = [...interaction.values];
         settings.liveLanguages = settings.liveLanguages.filter(code => settings.targetLanguages.includes(code));
@@ -592,7 +599,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           : step === 'outputs' ? 'Step 3 of 4: assign output channels. Choose a language, then its channel.'
             : step === 'output-channel' ? `Choose the channel for **${languageDisplayName(settings.setupProgress.outputLanguage)}**.`
               : 'Step 4 of 4: choose the combined live translations channel, or disable the live feed.';
-      return interaction.reply({ content: `${setupStatusMessage(interaction.guildId)}\n\nServer setup wizard (progress is saved automatically).\n${prompt}`, components: setupComponents(settings, interaction.guildId), flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: `${setupStatusMessage(interaction.guildId)}\n\nServer setup wizard (progress is saved automatically).\n${prompt}`, components: [...setupComponents(settings, interaction.guildId), new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:ignore-warnings').setLabel('Ignore current reminders').setStyle(ButtonStyle.Secondary))], flags: MessageFlags.Ephemeral });
     }
 
     if (interaction.commandName === 'user-setup') {
