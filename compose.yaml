@@ -4,13 +4,22 @@ services:
       context: .
       dockerfile: docker/whisper.Dockerfile
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
       SERVICE_HOST: 0.0.0.0
       SERVICE_PORT: 8000
       HF_HOME: /models/huggingface
       XDG_CACHE_HOME: /models/cache
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3-turbo}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
+      WHISPER_COMPUTE: ${WHISPER_COMPUTE:-float16}
+      WHISPER_BEAM_SIZE: ${WHISPER_BEAM_SIZE:-1}
+      MAX_CONCURRENT_TRANSCRIPTIONS: ${MAX_CONCURRENT_TRANSCRIPTIONS:-2}
+      MAX_CONCURRENT_TRANSLATIONS: ${MAX_CONCURRENT_TRANSLATIONS:-2}
+      TRANSLATOR: ${TRANSLATOR:-openai}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      LLM_BASE_URL: http://ollama:11434
+      LLM_MODEL: ${LLM_MODEL:-translategemma:4b}
+      LLM_API_KEY: ${LLM_API_KEY:-ollama}
     volumes:
       - whisper_models:/models
     networks:
@@ -51,9 +60,21 @@ services:
       context: .
       dockerfile: docker/bot.Dockerfile
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN:?Set DISCORD_TOKEN in the root .env file}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
+      MAX_CONCURRENT_UTTERANCES: ${MAX_CONCURRENT_UTTERANCES:-3}
+      SILENCE_MS: ${SILENCE_MS:-500}
+      MIN_UTTERANCE_MS: ${MIN_UTTERANCE_MS:-500}
+      MAX_UTTERANCE_MS: ${MAX_UTTERANCE_MS:-4000}
+      SEGMENT_SEARCH_MS: ${SEGMENT_SEARCH_MS:-1200}
+      SEGMENT_MIN_MS: ${SEGMENT_MIN_MS:-2500}
+      SEGMENT_QUIET_RMS: ${SEGMENT_QUIET_RMS:-700}
+      SHOW_ORIGINAL: ${SHOW_ORIGINAL:-true}
+      RECORD_WAV: ${RECORD_WAV:-false}
+      MESSAGE_DELETE_SECONDS: ${MESSAGE_DELETE_SECONDS:-300}
+      OVERLAY_RELAY_TOKENS: ${OVERLAY_RELAY_TOKENS:-}
       SERVICE_URL: http://whisper:8000
       DATA_DIR: /data
       OVERLAY_RELAY_HOST: 0.0.0.0
