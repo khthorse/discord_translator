@@ -397,7 +397,6 @@ async function appendTurnMessage(turn, key, channel, prefix, text) {
       return current.message;
     }
   }
-
   const message = await sendBotMessage(channel, content);
   if (message) turn.messages.set(key, { message, text: nextText });
   return message;
@@ -718,6 +717,7 @@ async function onJoin(interaction) {
     outputTail: Promise.resolve(),
     lastStartedSpeakerId: null,
     latestTurnBySpeaker: new Map(),
+    activeCaptureBySpeaker: new Map(),
   };
 
   sessions.set(interaction.guildId, session);
@@ -797,8 +797,7 @@ async function clearBotMessages(guild) {
       .map(([, name]) => name);
 
     if (missingPermissions.length) {
-      const detail = `Missing permissions in #${channel.name}: ${missingPermissions.join(', ')}.`;
-      console.warn(detail);
+      const detail = `Missing permissions in #${channel.name}: ${missingPermissions.join(', ')}.`;      console.warn(detail);
       report.errors.push(detail);
     }
 
@@ -1183,41 +1182,67 @@ function startListening(session) {
   receiver.speaking.on('start', async (userId) => {
     const alreadyActive = session.active.has(userId);
     if (alreadyActive) {
-      if (session.lastStartedSpeakerId !== userId) {
-        session.latestTurnBySpeaker.set(userId, {
+      const capture = session.activeCaptureBySpeaker.get(userId);
+      if (capture && session.lastStartedSpeakerId !== userId) {
+        // Keep the existing capture stream, but associate subsequent emitted
+        // segments with a fresh turn after this speaker resumes.
+        capture.turn = {
           messages: new Map(),
           liveOriginal: '',
           liveTranslations: new Map(),
-        });
+        };
+        session.latestTurnBySpeaker.set(userId, capture.turn);
         session.lastStartedSpeakerId = userId;
       }
       return;
     }
 
     session.active.add(userId);
+    let capture = null;
     try {
       // Discord bot accounts (music bots, moderation bots, etc.) should never
       // enter speech recognition or translation.
       const member = await session.guild.members.fetch(userId).catch(() => null);
       if (member?.user?.bot) return;
 
-      // A new speaker turn gets its own accumulating messages. A speaker who
-      // resumes after an interruption gets a new turn even if their old stream
-      // has not reached its silence timeout yet.
-      session.latestTurnBySpeaker.set(userId, {
-        messages: new Map(),
-        liveOriginal: '',
-        liveTranslations: new Map(),
-      });
+      // Each capture owns its current turn. If the speaker resumes after an
+      // interruption, the active capture's turn is replaced explicitly.
+      capture = {
+        turn: {
+          messages: new Map(),
+          liveOriginal: '',
+          liveTranslations: new Map(),
+        },
+      };
+      session.activeCaptureBySpeaker.set(userId, capture);
+      session.latestTurnBySpeaker.set(userId, capture.turn);
       session.lastStartedSpeakerId = userId;
 
       await captureUtterance(receiver, userId, (pcm) => {
-        enqueueUtterance(session, userId, pcm);
+        enqueueUtterance(session, userId, pcm, capture.turn);
       });
     } catch (err) {
       console.error(`Capture failed for ${userId}:`, err.message);
     } finally {
       session.active.delete(userId);
+      if (session.activeCaptureBySpeaker.get(userId) === capture) {
+        session.activeCaptureBySpeaker.delete(userId);
+      }
+    }
+  });
+}
+
+function enqueueUtterance(session, userId, pcm, turn) {
+  if (!turn) {
+    console.error(`Cannot enqueue utterance for ${userId}: missing capture turn.`);
+    return;
+  }
+r(`Capture failed for ${userId}:`, err.message);
+    } finally {
+      session.active.delete(userId);
+      if (session.activeCaptureBySpeaker.get(userId) === capture) {
+        session.activeCaptureBySpeaker.delete(userId);
+      }
     }
   });
 }
