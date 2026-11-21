@@ -146,7 +146,8 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('user-setup')
-    .setDescription('Choose the languages you normally speak'),
+    .setDescription('Choose the languages you normally speak')
+    .setContexts(InteractionContextType.Guild),
 
   new SlashCommandBuilder()
     .setName('translate')
