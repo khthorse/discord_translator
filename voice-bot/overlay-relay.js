@@ -91,12 +91,12 @@ export function startOverlayRelay() {
         'Content-Type': 'text/plain; charset=utf-8',
         'Cache-Control': 'no-store',
       });
-      response.end('Wookie overlay relay is running.\\n');
+      response.end('Wookie overlay relay is running.');
       return;
     }
 
     response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    response.end('Not found.\\n');
+    response.end('Not found.');
   });
 
   webSocketServer = new WebSocketServer({
