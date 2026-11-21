@@ -520,8 +520,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       if (id === 'setup:output-channel') {
         const language = settings.setupProgress?.outputLanguage;
+        if (!language || !settings.targetLanguages.includes(language)) {
+          saveSetupStep(interaction.guildId, settings, 'outputs', { outputLanguage: null });
+          return interaction.update({ content: 'That output language is no longer enabled. Choose another language.', components: setupComponents(settings, interaction.guildId) });
+        }
         const channel = await getGuildTextChannel(interaction.guild, interaction.values[0]);
-        if (!language || !settings.targetLanguages.includes(language) || !channel) return interaction.update({ content: 'That language or channel is no longer available. Please choose again.', components: setupComponents(settings, interaction.guildId) });
+        if (!channel) return interaction.update({ content: 'That channel is no longer available. Choose another.', components: setupComponents(settings, interaction.guildId) });
         const perms = channel.permissionsFor(client.user);
         if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) return interaction.update({ content: `I need View Channel + Send Messages permissions in <#${channel.id}>. Choose another channel.`, components: setupComponents(settings, interaction.guildId) });
         languageChannels[interaction.guildId] ??= {};
