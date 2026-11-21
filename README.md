@@ -752,3 +752,89 @@ to the Python API (8000) or Ollama (11434).
   Compose versions.
 - Pin image versions and review dependencies periodically before using this as a
   long-running public service.
+
+
+### Register Discord slash commands in Docker
+
+The bot image includes the command-registration script. After the containers have been
+built and the .env file contains the correct Discord application and server IDs, run
+this one-off command from the repository root:
+
+    docker compose run --rm --no-deps bot node register-commands.js
+
+This registers the slash commands for the server identified by DISCORD_GUILD_ID.
+It does not start a second persistent bot: the temporary registration container exits
+when registration is complete. Run it again whenever you change the slash-command
+definitions in voice-bot/register-commands.js.
+
+If registration fails, check that DISCORD_TOKEN, DISCORD_CLIENT_ID, and
+DISCORD_GUILD_ID are set in the root .env file. The application ID is shown under
+General Information in the Discord Developer Portal. The server ID is copied from
+Discord with Developer Mode enabled. Do not share the token or paste command output
+that might contain resolved environment values into support chats.
+
+### Start, stop, update, and recreate
+
+Run these commands from the folder containing compose.yaml and .env:
+
+    # Start or update the running services in the background
+    docker compose up -d
+
+    # Stop the services without deleting containers or persistent data
+    docker compose stop
+
+    # Start the existing stopped containers again
+    docker compose start
+
+    # Follow logs; Ctrl+C stops log viewing, not the containers
+    docker compose logs -f
+
+    # Stop and remove containers and the Compose networks; named model volumes remain
+    docker compose down
+
+To rebuild an image after changing application source or a Dockerfile:
+
+    docker compose build
+    docker compose up -d
+
+Compose reads the root .env file when it creates or recreates containers. An existing
+container can be stopped and started without that file because Docker retains the
+environment assigned when the container was created. Keep a secure backup of .env,
+though: you will need it to recreate the containers, move the deployment, or recover
+from a lost Docker installation. The file is not copied into the application images.
+
+### What persists, and what to back up
+
+This Compose project uses three different kinds of storage:
+
+- whisper_models is a named Docker volume containing the downloaded Whisper model cache.
+- ollama_models is a named Docker volume containing Ollama models.
+- ./data/voice-bot is a host-folder bind mount containing the bot's server language
+  settings, channel assignments, member preferences, translation metadata, and optional
+  WAV recordings. Back up this folder if you want to preserve those settings and history.
+
+The two model volumes can usually be downloaded again, but doing so can take time and
+requires disk space and internet access. Back up the bot data folder and the root .env
+separately. A Docker named volume is managed by Docker; the bot data bind mount remains
+inside the deployment folder on the host. If you move or delete that folder, move or back
+up data/voice-bot first.
+
+docker compose down preserves named volumes. Avoid docker compose down -v unless
+you intentionally want to delete the named model volumes. Removing the host deployment
+folder can still remove the data/voice-bot bind-mounted files.
+
+### Running a separate test deployment
+
+Use a separate Compose project name and a separate bot-data directory for testing, so
+test settings do not overwrite production settings. For example, a test copy of the
+deployment can use:
+
+    docker compose -p discord-translator-test up -d
+
+A separate project name gives the Compose-managed networks and named volumes a separate
+project namespace, but it does not automatically separate host bind mounts. Make sure
+the test Compose file points ./data/voice-bot to a test-only directory before starting
+it. Do not run production and test bot containers at the same time with the same
+DISCORD_TOKEN: Discord only allows one active gateway session for that bot account.
+If both deployments use the same model volumes, do not run competing Ollama instances
+against those volumes simultaneously. Stop one deployment before starting the other.
