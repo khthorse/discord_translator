@@ -497,3 +497,90 @@ from the host's `.env` and restart the Discord bot.
    overlay clients need to connect.
 
 Keep the Python service and Discord bot running while translating.
+
+
+## Experimental Docker deployment
+
+This optional deployment runs the backend alongside the native installation. Keep the
+native setup available until GPU inference, Discord voice networking, and relay access
+have been tested end to end.
+
+### Services
+
+- `whisper`: FastAPI and Faster-Whisper, with NVIDIA GPU reservation and persistent model cache.
+- `ollama`: Ollama with persistent model storage and NVIDIA GPU reservation.
+- `bot`: Discord bot and authenticated overlay relay.
+- `cloudflared`: optional tunnel connector, enabled with the `tunnel` profile.
+- Electron remains a native Windows application.
+
+The Python API and Ollama have no published host ports. They are reachable only on the
+private backend network. The bot joins the backend and edge networks; the tunnel connector
+joins only the edge network. No ports are published to the host.
+
+### Prerequisites
+
+- Docker Desktop using its WSL2 backend.
+- A current NVIDIA Windows driver and working GPU access from WSL2/Docker.
+- The repository root `.env` populated with the existing Discord and relay credentials.
+- `TRANSLATOR=openai` and `LLM_MODEL=translategemma:4b` for the bundled Ollama service.
+
+### Build and start
+
+From the repository root:
+
+```powershell
+docker compose build
+docker compose up -d
+docker compose ps
+docker compose logs -f whisper ollama bot
+```
+
+The Compose file reads the existing root `.env`. It overrides the internal URLs to use
+Compose DNS: the bot calls `http://whisper:8000` and the translator calls
+`http://ollama:11434`. Whisper and Ollama model data use named volumes. Bot settings,
+translation history, and optional recordings are stored under the ignored local
+`data/voice-bot` directory.
+
+After Ollama starts, download the configured model:
+
+```powershell
+docker compose exec ollama ollama pull translategemma:4b
+```
+
+### Optional Cloudflare Tunnel connector
+
+After creating a named tunnel in Cloudflare, add its secret token to the untracked root
+`.env`:
+
+```env
+CLOUDFLARE_TUNNEL_TOKEN=YOUR_SECRET_TUNNEL_TOKEN
+```
+
+Then start the connector:
+
+```powershell
+docker compose --profile tunnel up -d
+```
+
+In Cloudflare, configure the public hostname to route to `http://bot:8765`. The connector
+and bot share the private edge network. Expose the relay only; do not route public traffic
+to the Python API (8000) or Ollama (11434).
+
+### Stop and remove containers
+
+```powershell
+docker compose down
+```
+
+Named model volumes are preserved. Do not add `-v` unless you deliberately want to
+delete downloaded Whisper and Ollama model data.
+
+### Security and limitations
+
+- Keep secrets in the untracked root `.env`; never put them in images or Git.
+- The relay is the only service reachable from the tunnel network.
+- Python and Ollama ports are not published to the host.
+- Containers run as a non-root user where supported by the application image.
+- GPU reservation syntax must be validated with the installed Docker Desktop/Compose version.
+- This is an initial deployment template, not a security audit. Pin image versions and
+  review/update dependencies before using it as a long-running public service.
