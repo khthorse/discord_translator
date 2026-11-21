@@ -236,6 +236,7 @@ function getSetupWarnings(guildId) {
   const settings = getGuildSettings(guildId);
   const mappings = languageChannels[guildId] || {};
   const warnings = [];
+  if (!settings.inputLanguages.length) warnings.push({ id: 'input-languages', text: 'No input languages are restricted; Whisper will use automatic language detection.' });
   const missingOutputs = settings.targetLanguages.filter(code => !mappings[code]);
   if (missingOutputs.length) warnings.push({ id: 'output-channels', text: `No output channel assigned for: ${missingOutputs.map(languageDisplayName).join(', ')}.` });
   if (!settings.targetLanguages.length) warnings.push({ id: 'target-languages', text: 'No translation output languages are enabled.' });
@@ -430,12 +431,45 @@ client.once(Events.ClientReady, (c) => {
   console.log(`Logged in as ${c.user.tag}`);
 });
 
+client.on(Events.GuildCreate, async (guild) => {
+  try {
+    const settings = getGuildSettings(guild.id);
+    const channel = guild.systemChannel || guild.channels.cache.find(candidate =>
+      candidate.isTextBased() && candidate.permissionsFor(client.user)?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]),
+    );
+    if (!channel?.isTextBased()) return;
+    const warnings = getSetupWarnings(guild.id);
+    const components = warnings.length ? [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('setup:start').setLabel('Configure server').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('setup:ignore-warnings').setLabel('Ignore these reminders').setStyle(ButtonStyle.Secondary),
+    )] : [];
+    await channel.send({ content: `Thanks for adding the translation bot!\\n\\n${setupStatusMessage(guild.id)}\\n\\nAdmins can run /setup to configure the server.`, components, allowedMentions: { parse: [] } });
+  } catch (err) {
+    console.error(`Could not post setup guidance in ${guild.id}:`, err);
+  }
+});
+
 // -------------------------------------------------------------- commands ---
 
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.inGuild()) return;
 
   try {
+    if (interaction.isButton() && interaction.customId === 'setup:ignore-warnings') {
+      if (!hasManageServerPermission(interaction)) return interaction.reply({ content: 'You need the Manage Server permission to change setup reminders.', flags: MessageFlags.Ephemeral });
+      const settings = getGuildSettings(interaction.guildId);
+      settings.ignoredSetupWarnings = getSetupWarnings(interaction.guildId).map(item => item.id);
+      saveGuildLanguageSettings();
+      return interaction.update({ content: `Setup reminders for the current warnings are paused. Run /setup whenever you want to review the configuration again.\\n\\n${setupStatusMessage(interaction.guildId)}`, components: [] });
+    }
+    if (interaction.isButton() && interaction.customId === 'setup:start') {
+      if (!hasManageServerPermission(interaction)) return interaction.reply({ content: 'You need the Manage Server permission to configure this server.', flags: MessageFlags.Ephemeral });
+      const settings = getGuildSettings(interaction.guildId);
+      settings.ignoredSetupWarnings = [];
+      settings.setupProgress = { step: 'input' };
+      saveGuildLanguageSettings();
+      return interaction.update({ content: 'Step 1 of 4: choose the languages members may speak.', components: setupComponents(settings, interaction.guildId) });
+    }
     if ((interaction.isStringSelectMenu() || interaction.isChannelSelectMenu() || interaction.isButton()) && interaction.customId.startsWith('setup:')) {
       if (!hasManageServerPermission(interaction)) return interaction.reply({ content: 'You need the Manage Server permission to run server setup.', flags: MessageFlags.Ephemeral });
       const settings = getGuildSettings(interaction.guildId);
