@@ -475,6 +475,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.update({ content: 'Step 1 of 4: choose the languages members may speak.', components: setupComponents(settings, interaction.guildId) });
       }
     }
+    if (interaction.isStringSelectMenu() && interaction.customId === 'language-channel:remove') {
+      if (!hasManageServerPermission(interaction)) return interaction.reply({ content: 'You need the Manage Server permission to change these settings.', flags: MessageFlags.Ephemeral });
+      const language = interaction.values[0];
+      if (!languageChannels[interaction.guildId]?.[language]) return interaction.update({ content: 'That mapping no longer exists.', components: [] });
+      delete languageChannels[interaction.guildId][language];
+      if (!Object.keys(languageChannels[interaction.guildId]).length) delete languageChannels[interaction.guildId];
+      saveLanguageChannels();
+      return interaction.update({ content: `Removed the output channel mapping for **${languageDisplayName(language)}**.`, components: [] });
+    }
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('language-channel:assign:')) {
       if (!hasManageServerPermission(interaction)) return interaction.reply({ content: 'You need the Manage Server permission to change these settings.', flags: MessageFlags.Ephemeral });
       const channelId = interaction.customId.split(':')[2];
@@ -840,31 +849,12 @@ async function onLanguageChannel(interaction) {
     return interaction.reply({ content: `Choose which language should be posted in <#${channel.id}>:`, components: [new ActionRowBuilder().addComponents(menu)], flags: MessageFlags.Ephemeral });
   }
 
-  const language = interaction.options.getString('language', true).trim().toLowerCase();
-  if (!/^[a-z]{2,3}$/.test(language)) {
-    return interaction.reply({ content: 'Use a 2- or 3-letter language code, such as `en`, `es`, `no`, or `de`.', flags: MessageFlags.Ephemeral });
-  }
-
   if (action === 'remove') {
-    if (!languageChannels[interaction.guildId]?.[language]) {
-      return interaction.reply({
-        content: `No channel is set for **${language}**.`,
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
-    delete languageChannels[interaction.guildId][language];
-
-    if (Object.keys(languageChannels[interaction.guildId]).length === 0) {
-      delete languageChannels[interaction.guildId];
-    }
-
-    saveLanguageChannels();
-
-    return interaction.reply({
-      content: `Removed the channel mapping for **${language}**.`,
-      flags: MessageFlags.Ephemeral,
-    });
+    const mappings = languageChannels[interaction.guildId] || {};
+    const codes = Object.keys(mappings);
+    if (!codes.length) return interaction.reply({ content: 'There are no output channel mappings to remove.', flags: MessageFlags.Ephemeral });
+    const menu = new StringSelectMenuBuilder().setCustomId('language-channel:remove').setPlaceholder('Choose a language mapping to remove').addOptions(codes.slice(0, 25).map(code => ({ label: languageDisplayName(code), value: code })));
+    return interaction.reply({ content: 'Choose the output language mapping to remove:', components: [new ActionRowBuilder().addComponents(menu)], flags: MessageFlags.Ephemeral });
   }
 
 }
