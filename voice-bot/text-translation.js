@@ -1,8 +1,11 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PermissionFlagsBits, MessageFlags, escapeMarkdown } from 'discord.js';
 
-const historyFile = fileURLToPath(new URL('./translation-history.json', import.meta.url));
+const dataDir = process.env.DATA_DIR || fileURLToPath(new URL('.', import.meta.url));
+fs.mkdirSync(dataDir, { recursive: true });
+const historyFile = path.join(dataDir, 'translation-history.json');
 const MAX_HISTORY_PER_CHANNEL = 2000;
 
 function loadHistory() {
