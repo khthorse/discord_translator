@@ -218,37 +218,39 @@ function userSetupComponents(settings, selected) {
 
 
 
-function setupSummary(guildId) {
+function setupSummary(guildId, guild = null) {
   const settings = getGuildSettings(guildId);
   const mappings = languageChannels[guildId] || {};
   const outputLines = settings.targetLanguages.map(code =>
-    `• ${languageDisplayName(code)}: ${mappings[code] ? `<#${mappings[code]}>` : settings.ignoredSetupWarnings.includes('output-channels') ? 'ignored for now' : 'not assigned'}`,
+    `• ${languageDisplayName(code)}: ${mappings[code] ? (guild && !guild.channels.cache.has(mappings[code]) ? 'deleted/missing channel' : `<#${mappings[code]}>`) : settings.ignoredSetupWarnings.includes('output-channels') ? 'ignored for now' : 'not assigned'}`,
   );
   return [
     '**Server setup summary**',
     `Input languages: ${settings.inputLanguages.length ? settings.inputLanguages.map(languageDisplayName).join(', ') : 'none'}`,
     `Output languages: ${settings.targetLanguages.length ? settings.targetLanguages.map(languageDisplayName).join(', ') : settings.translationOutputsStatus === 'disabled' ? 'disabled intentionally' : 'none / not configured'}`,
     ...outputLines,
-    `Live translations: ${settings.liveChannelId ? `<#${settings.liveChannelId}>` : settings.liveFeedStatus === 'disabled' ? 'disabled intentionally' : settings.ignoredSetupWarnings.includes('live-channel') ? 'ignored for now' : 'not configured'}`,
+    `Live translations: ${settings.liveChannelId ? (guild && !guild.channels.cache.has(settings.liveChannelId) ? 'deleted/missing channel' : `<#${settings.liveChannelId}>`) : settings.liveFeedStatus === 'disabled' ? 'disabled intentionally' : settings.ignoredSetupWarnings.includes('live-channel') ? 'ignored for now' : 'not configured'}`,
   ].join('\n');
 }
 
 
-function getSetupWarnings(guildId) {
+function getSetupWarnings(guildId, guild = null) {
   const settings = getGuildSettings(guildId);
   const mappings = languageChannels[guildId] || {};
   const warnings = [];
   if (!settings.inputLanguages.length) warnings.push({ id: 'input-languages', text: 'No input languages are restricted; Whisper will use automatic language detection.' });
-  const missingOutputs = settings.targetLanguages.filter(code => !mappings[code]);
+  const missingOutputs = settings.targetLanguages.filter(code =>
+    !mappings[code] || (guild && !guild.channels.cache.has(mappings[code])),
+  );
   if (missingOutputs.length) warnings.push({ id: 'output-channels', text: `No output channel assigned for: ${missingOutputs.map(languageDisplayName).join(', ')}.` });
   if (!settings.targetLanguages.length && settings.translationOutputsStatus !== 'disabled') warnings.push({ id: 'target-languages', text: 'No translation output languages are enabled.' });
-  if (!settings.liveChannelId && settings.liveFeedStatus !== 'disabled') warnings.push({ id: 'live-channel', text: 'The combined live translations channel is not configured.' });
+  if ((!settings.liveChannelId || (guild && !guild.channels.cache.has(settings.liveChannelId))) && settings.liveFeedStatus !== 'disabled') warnings.push({ id: 'live-channel', text: 'The combined live translations channel is not configured or no longer exists.' });
   return warnings.filter(item => !settings.ignoredSetupWarnings.includes(item.id));
 }
 
-function setupStatusMessage(guildId) {
-  const warnings = getSetupWarnings(guildId);
-  const status = setupSummary(guildId);
+function setupStatusMessage(guildId, guild = null) {
+  const warnings = getSetupWarnings(guildId, guild);
+  const status = setupSummary(guildId, guild);
   if (!warnings.length) return `${status}\n\nSetup checks look good.`;
   return `${status}\n\n**Needs attention**\n${warnings.map(item => `• ${item.text}`).join('\n')}`;
 }
@@ -448,12 +450,12 @@ client.on(Events.GuildCreate, async (guild) => {
       ? guild.systemChannel
       : guild.channels.cache.find(canPostSetup);
     if (!channel?.isTextBased()) return;
-    const warnings = getSetupWarnings(guild.id);
+    const warnings = getSetupWarnings(guild.id, guild);
     const components = warnings.length ? [new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('setup:start').setLabel('Configure server').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId('setup:ignore-warnings').setLabel('Ignore these reminders').setStyle(ButtonStyle.Secondary),
     )] : [];
-    await channel.send({ content: `Thanks for adding the translation bot!\n\n${setupStatusMessage(guild.id)}\n\nAdmins can run /setup to configure the server.`, components, allowedMentions: { parse: [] } });
+    await channel.send({ content: `Thanks for adding the translation bot!\n\n${setupStatusMessage(guild.id, guild)}\n\nAdmins can run /setup to configure the server.`, components, allowedMentions: { parse: [] } });
   } catch (err) {
     console.error(`Could not post setup guidance in ${guild.id}:`, err);
   }
@@ -468,9 +470,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isButton() && interaction.customId === 'setup:ignore-warnings') {
       if (!hasManageServerPermission(interaction)) return interaction.reply({ content: 'You need the Manage Server permission to change setup reminders.', flags: MessageFlags.Ephemeral });
       const settings = getGuildSettings(interaction.guildId);
-      settings.ignoredSetupWarnings = getSetupWarnings(interaction.guildId).map(item => item.id);
+      settings.ignoredSetupWarnings = getSetupWarnings(interaction.guildId, interaction.guild).map(item => item.id);
       saveGuildLanguageSettings();
-      return interaction.update({ content: `Setup reminders for the current warnings are paused. Run /setup whenever you want to review the configuration again.\n\n${setupStatusMessage(interaction.guildId)}`, components: [] });
+      return interaction.update({ content: `Setup reminders for the current warnings are paused. Run /setup whenever you want to review the configuration again.\n\n${setupStatusMessage(interaction.guildId, interaction.guild)}`, components: [] });
     }
     if (interaction.isButton() && interaction.customId === 'setup:start') {
       if (!hasManageServerPermission(interaction)) return interaction.reply({ content: 'You need the Manage Server permission to configure this server.', flags: MessageFlags.Ephemeral });
@@ -538,19 +540,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
         saveGuildLanguageSettings();
         delete settings.setupProgress;
         saveGuildLanguageSettings();
-        return interaction.update({ content: `Setup complete!\n\n${setupSummary(interaction.guildId)}`, components: [] });
+        return interaction.update({ content: `Setup complete!\n\n${setupSummary(interaction.guildId, interaction.guild)}`, components: [] });
       }
       if (id === 'setup:disable-live') {
         settings.liveChannelId = null;
         settings.liveFeedStatus = 'disabled';
         delete settings.setupProgress;
         saveGuildLanguageSettings();
-        return interaction.update({ content: `Setup complete. Live translations are disabled.\n\n${setupSummary(interaction.guildId)}`, components: [] });
+        return interaction.update({ content: `Setup complete. Live translations are disabled.\n\n${setupSummary(interaction.guildId, interaction.guild)}`, components: [] });
       }
       if (id === 'setup:finish') {
         delete settings.setupProgress;
         saveGuildLanguageSettings();
-        return interaction.update({ content: `Setup saved. You can run /setup again to change it.\n\n${setupSummary(interaction.guildId)}`, components: [] });
+        return interaction.update({ content: `Setup saved. You can run /setup again to change it.\n\n${setupSummary(interaction.guildId, interaction.guild)}`, components: [] });
       }
       if (id === 'setup:restart') {
         saveSetupStep(interaction.guildId, settings, 'input');
@@ -608,7 +610,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           : step === 'outputs' ? 'Step 3 of 4: assign output channels. Choose a language, then its channel.'
             : step === 'output-channel' ? `Choose the channel for **${languageDisplayName(settings.setupProgress.outputLanguage)}**.`
               : 'Step 4 of 4: choose the combined live translations channel, or disable the live feed.';
-      return interaction.reply({ content: `${setupStatusMessage(interaction.guildId)}\n\nServer setup wizard (progress is saved automatically).\n${prompt}`, components: [...setupComponents(settings, interaction.guildId), new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:ignore-warnings').setLabel('Ignore current reminders').setStyle(ButtonStyle.Secondary))], flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: `${setupStatusMessage(interaction.guildId, interaction.guild)}\n\nServer setup wizard (progress is saved automatically).\n${prompt}`, components: [...setupComponents(settings, interaction.guildId), new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:ignore-warnings').setLabel('Ignore current reminders').setStyle(ButtonStyle.Secondary))], flags: MessageFlags.Ephemeral });
     }
 
     if (interaction.commandName === 'user-setup') {
