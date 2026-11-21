@@ -205,6 +205,9 @@ const SETUP_LANGUAGE_CODES = ['en', 'es', 'no', 'nn', 'sv', 'da', 'fi', 'de', 'f
 
 function userSetupComponents(settings, selected) {
   const allowed = settings.inputLanguages.slice(0, 25);
+  if (!allowed.length) return [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('user-setup:finish').setLabel('Finish').setStyle(ButtonStyle.Success),
+  )];
   const menu = new StringSelectMenuBuilder()
     .setCustomId('user-setup:languages')
     .setPlaceholder('Choose the languages you speak')
@@ -213,10 +216,10 @@ function userSetupComponents(settings, selected) {
     .addOptions(allowed.map(code => ({ label: languageDisplayName(code), value: code, default: selected.includes(code) })));
   return [
     new ActionRowBuilder().addComponents(menu),
-    new ActionRowBuilder().addComponents(new ButtonBuilder()
-      .setCustomId('user-setup:automatic')
-      .setLabel('Use automatic detection')
-      .setStyle(ButtonStyle.Secondary)),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('user-setup:automatic').setLabel('Use automatic detection').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('user-setup:finish').setLabel('Finish').setStyle(ButtonStyle.Success),
+    ),
   ];
 }
 
@@ -234,6 +237,7 @@ function setupSummary(guildId, guild = null) {
     `Output languages: ${settings.targetLanguages.length ? settings.targetLanguages.map(languageDisplayName).join(', ') : settings.translationOutputsStatus === 'disabled' ? 'disabled intentionally' : 'none / not configured'}`,
     ...outputLines,
     `Live translations: ${settings.liveChannelId ? (guild && !guild.channels.cache.has(settings.liveChannelId) ? 'deleted/missing channel' : `<#${settings.liveChannelId}>`) : settings.liveFeedStatus === 'disabled' ? 'disabled intentionally' : settings.ignoredSetupWarnings.includes('live-channel') ? 'ignored for now' : 'not configured'}`,
+    `Live-feed languages: ${settings.liveLanguages.length ? settings.liveLanguages.map(languageDisplayName).join(', ') : 'none selected'}`,
   ].join('\n');
 }
 
@@ -272,23 +276,48 @@ function setupComponents(settings, guildId) {
       .setMaxValues(languages.length)
       .addOptions(languages.map(code => ({ label: languageDisplayName(code), value: code, default: selected.includes(code) })));
     const rows = [new ActionRowBuilder().addComponents(menu)];
-    if (isInput) rows.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:automatic-input').setLabel('Use unrestricted automatic detection').setStyle(ButtonStyle.Secondary)));
-    if (!isInput) rows.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:no-targets').setLabel('Disable translation outputs').setStyle(ButtonStyle.Secondary)));
+    if (isInput) {
+      rows.push(new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('setup:automatic-input').setLabel('Use unrestricted automatic detection').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('setup:continue-input').setLabel('Continue').setStyle(ButtonStyle.Primary),
+      ));
+    } else {
+      rows.push(new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('setup:no-targets').setLabel('Disable translation outputs').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('setup:continue-target').setLabel('Continue').setStyle(ButtonStyle.Primary),
+      ));
+    }
     return rows;
   }
   if (progress.step === 'outputs') {
     const targets = settings.targetLanguages.slice(0, 25);
-    if (!targets.length) return [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:finish').setLabel('Finish without output channels').setStyle(ButtonStyle.Secondary))];
+    if (!targets.length) return [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:outputs-done').setLabel('Continue').setStyle(ButtonStyle.Primary))];
     const menu = new StringSelectMenuBuilder().setCustomId('setup:output-language').setPlaceholder('Choose an output language to assign').addOptions(targets.map(code => ({ label: languageDisplayName(code), value: code })));
-    return [new ActionRowBuilder().addComponents(menu), new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:outputs-done').setLabel('Done assigning channels').setStyle(ButtonStyle.Secondary))];
+    return [new ActionRowBuilder().addComponents(menu), new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:outputs-done').setLabel('Done assigning channels').setStyle(ButtonStyle.Primary))];
   }
   if (progress.step === 'output-channel') {
     const menu = new ChannelSelectMenuBuilder().setCustomId('setup:output-channel').setChannelTypes(ChannelType.GuildText).setPlaceholder('Choose the channel for this language');
     return [new ActionRowBuilder().addComponents(menu)];
   }
   if (progress.step === 'live') {
-    const menu = new ChannelSelectMenuBuilder().setCustomId('setup:live-channel').setChannelTypes(ChannelType.GuildText).setPlaceholder('Choose the combined live translations channel');
-    return [new ActionRowBuilder().addComponents(menu), new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:disable-live').setLabel('Disable live translations').setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId('setup:finish').setLabel('Finish setup').setStyle(ButtonStyle.Success))];
+    const rows = [];
+    const targets = settings.targetLanguages.slice(0, 25);
+    if (targets.length) {
+      const languageMenu = new StringSelectMenuBuilder()
+        .setCustomId('setup:live-languages')
+        .setPlaceholder('Select languages for the combined live feed')
+        .setMinValues(1)
+        .setMaxValues(targets.length)
+        .addOptions(targets.map(code => ({ label: languageDisplayName(code), value: code, default: settings.liveLanguages.includes(code) })));
+      rows.push(new ActionRowBuilder().addComponents(languageMenu));
+    }
+    const channelMenu = new ChannelSelectMenuBuilder().setCustomId('setup:live-channel').setChannelTypes(ChannelType.GuildText).setPlaceholder('Choose the combined live translations channel');
+    rows.push(new ActionRowBuilder().addComponents(channelMenu));
+    rows.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('setup:disable-live').setLabel('Disable live translations').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('setup:finish').setLabel('Finish setup').setStyle(ButtonStyle.Success),
+    ));
+    return rows;
   }
   return [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:restart').setLabel('Restart setup').setStyle(ButtonStyle.Secondary))];
 }
@@ -491,26 +520,35 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (id === 'setup:automatic-input') {
         settings.inputLanguages = [];
         saveSetupStep(interaction.guildId, settings, 'target');
-        return interaction.update({ content: 'Automatic language detection is enabled for the server. Step 2 of 4: choose translation output languages.', components: setupComponents(settings, interaction.guildId) });
+        return interaction.update({ content: '**Step 2 of 4 — Translation output languages**\nChoose which languages the bot can translate speech into. Select as many as you need, then press Continue. These are the languages used for translated output, not the languages members speak.', components: setupComponents(settings, interaction.guildId) });
       }
       if (id === 'setup:input') {
         settings.inputLanguages = [...interaction.values];
+        saveSetupStep(interaction.guildId, settings, 'input');
+        return interaction.update({ content: `**Step 1 of 4 — Spoken languages**\nChoose the languages members may speak. Whisper will focus recognition on this list. Your selection is saved automatically; press Continue when you are ready.\nSelected: ${settings.inputLanguages.map(languageDisplayName).join(', ')}`, components: setupComponents(settings, interaction.guildId) });
+      }
+      if (id === 'setup:continue-input') {
         saveSetupStep(interaction.guildId, settings, 'target');
-        return interaction.update({ content: 'Step 2 of 4: choose the languages the bot should translate into.', components: setupComponents(settings, interaction.guildId) });
+        return interaction.update({ content: '**Step 2 of 4 — Translation output languages**\nChoose which languages the bot can translate speech into. Select as many as you need, then press Continue. These are the languages used for translated output, not the languages members speak.', components: setupComponents(settings, interaction.guildId) });
       }
       if (id === 'setup:no-targets') {
         settings.targetLanguages = [];
         settings.translationOutputsStatus = 'disabled';
         settings.liveLanguages = [];
         saveSetupStep(interaction.guildId, settings, 'outputs');
-        return interaction.update({ content: 'Translation outputs are disabled. Continue to the live-feed step or finish setup.', components: setupComponents(settings, interaction.guildId) });
+        return interaction.update({ content: '**Step 3 of 4 — Output channels**\nTranslation outputs are disabled, so there are no language channels to assign. Press Continue to configure the combined live feed or finish setup.', components: setupComponents(settings, interaction.guildId) });
       }
       if (id === 'setup:target') {
         settings.targetLanguages = [...interaction.values];
         settings.translationOutputsStatus = 'configured';
         settings.liveLanguages = settings.liveLanguages.filter(code => settings.targetLanguages.includes(code));
+        saveSetupStep(interaction.guildId, settings, 'target');
+        return interaction.update({ content: `**Step 2 of 4 — Translation output languages**\nChoose the languages the bot can translate speech into. Your selection is saved automatically; press Continue when ready.\nSelected: ${settings.targetLanguages.map(languageDisplayName).join(', ')}`, components: setupComponents(settings, interaction.guildId) });
+      }
+      if (id === 'setup:continue-target') {
+        if (!settings.targetLanguages.length) return interaction.reply({ content: 'Choose at least one translation output language, or use Disable translation outputs.', flags: MessageFlags.Ephemeral });
         saveSetupStep(interaction.guildId, settings, 'outputs');
-        return interaction.update({ content: 'Step 3 of 4: assign an output channel to each language. Choose a language, then choose its channel. You can leave any language unassigned for now.', components: setupComponents(settings, interaction.guildId) });
+        return interaction.update({ content: '**Step 3 of 4 — Output channels**\nAssign a Discord text channel for each translation language. Choose a language, then choose its channel. You can leave languages unassigned for now. Press Done assigning channels when finished.', components: setupComponents(settings, interaction.guildId) });
       }
       if (id === 'setup:output-language') {
         saveSetupStep(interaction.guildId, settings, 'output-channel', { outputLanguage: interaction.values[0] });
@@ -534,7 +572,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       if (id === 'setup:outputs-done') {
         saveSetupStep(interaction.guildId, settings, 'live');
-        return interaction.update({ content: 'Step 4 of 4: choose the combined live translations channel, or disable the live feed.', components: setupComponents(settings, interaction.guildId) });
+        return interaction.update({ content: '**Step 4 of 4 — Combined live translations**\nChoose which enabled translation languages should appear in the shared live feed, then choose its text channel. This selection is independent of the individual language channels. Press Finish setup when everything is ready.', components: setupComponents(settings, interaction.guildId) });
+      }
+      if (id === 'setup:live-languages') {
+        settings.liveLanguages = interaction.values.filter(code => settings.targetLanguages.includes(code));
+        saveGuildLanguageSettings();
+        return interaction.update({ content: `**Step 4 of 4 — Combined live translations**\nYour live-feed language selection is saved. Choose a text channel for the shared feed, then press Finish setup.\nIncluded languages: ${settings.liveLanguages.map(languageDisplayName).join(', ')}`, components: setupComponents(settings, interaction.guildId) });
       }
       if (id === 'setup:live-channel') {
         const channel = await getGuildTextChannel(interaction.guild, interaction.values[0]);
@@ -544,16 +587,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         settings.liveChannelId = channel.id;
         settings.liveFeedStatus = 'configured';
         saveGuildLanguageSettings();
-        delete settings.setupProgress;
-        saveGuildLanguageSettings();
-        return interaction.update({ content: `Setup complete!\n\n${setupSummary(interaction.guildId, interaction.guild)}`, components: [] });
+        return interaction.update({ content: `Saved the combined live translations channel as <#${channel.id}>. Press Finish setup when you are ready.\n\n${setupSummary(interaction.guildId, interaction.guild)}`, components: setupComponents(settings, interaction.guildId) });
       }
       if (id === 'setup:disable-live') {
         settings.liveChannelId = null;
         settings.liveFeedStatus = 'disabled';
-        delete settings.setupProgress;
         saveGuildLanguageSettings();
-        return interaction.update({ content: `Setup complete. Live translations are disabled.\n\n${setupSummary(interaction.guildId, interaction.guild)}`, components: [] });
+        return interaction.update({ content: `Live translations are disabled. Press Finish setup to save and close the wizard.\n\n${setupSummary(interaction.guildId, interaction.guild)}`, components: setupComponents(settings, interaction.guildId) });
       }
       if (id === 'setup:finish') {
         delete settings.setupProgress;
@@ -596,11 +636,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const settings = getGuildSettings(interaction.guildId);
       const selected = interaction.values.filter(code => settings.inputLanguages.includes(code));
       saveUserLanguagePreferences(interaction.guildId, interaction.user.id, selected);
-      return interaction.update({ content: `Your expected spoken languages are now: **${selected.map(languageDisplayName).join(', ')}**.`, components: userSetupComponents(settings, selected) });
+      return interaction.update({ content: `**Your preferences are saved automatically.**\nSelect all languages you normally speak. The bot uses these as hints when recognizing your speech; press Finish when you are done.\nSelected: ${selected.map(languageDisplayName).join(', ')}`, components: userSetupComponents(settings, selected) });
     }
     if (interaction.isButton() && interaction.customId === 'user-setup:automatic') {
+      const settings = getGuildSettings(interaction.guildId);
       saveUserLanguagePreferences(interaction.guildId, interaction.user.id, []);
-      return interaction.update({ content: 'Automatic language detection is enabled for you. Your personal preferences have been cleared.', components: [] });
+      return interaction.update({ content: 'Automatic detection is enabled for you and your personal language preferences have been cleared. Press Finish to close setup.', components: userSetupComponents(settings, []) });
+    }
+    if (interaction.isButton() && interaction.customId === 'user-setup:finish') {
+      const selected = getUserLanguagePreferences(interaction.guildId, interaction.user.id);
+      return interaction.update({ content: selected.length ? `Setup complete. Your expected spoken languages are: **${selected.map(languageDisplayName).join(', ')}**.` : 'Setup complete. You are using automatic language detection.', components: [] });
     }
     if (!interaction.isChatInputCommand()) return;
 
@@ -611,19 +656,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
       settings.setupProgress ??= { step: 'input' };
       saveGuildLanguageSettings();
       const step = settings.setupProgress.step;
-      const prompt = step === 'input' ? 'Step 1 of 4: choose the languages members may speak.'
-        : step === 'target' ? 'Step 2 of 4: choose the translation output languages.'
-          : step === 'outputs' ? 'Step 3 of 4: assign output channels. Choose a language, then its channel.'
-            : step === 'output-channel' ? `Choose the channel for **${languageDisplayName(settings.setupProgress.outputLanguage)}**.`
-              : 'Step 4 of 4: choose the combined live translations channel, or disable the live feed.';
-      return interaction.reply({ content: `${setupStatusMessage(interaction.guildId, interaction.guild)}\n\nServer setup wizard (progress is saved automatically).\n${prompt}`, components: [...setupComponents(settings, interaction.guildId), new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:ignore-warnings').setLabel('Ignore current reminders').setStyle(ButtonStyle.Secondary))], flags: MessageFlags.Ephemeral });
+      const prompts = {
+        input: '**Step 1 of 4 — Spoken languages**\nChoose the languages members may speak. Whisper will focus recognition on this list. Select as many as needed; your choices save automatically. Press Continue when ready. Use unrestricted detection if you do not want to limit recognition.',
+        target: '**Step 2 of 4 — Translation output languages**\nChoose which languages the bot can translate speech into. These are separate from spoken input languages. Select as many as needed; your choices save automatically. Press Continue when ready.',
+        outputs: '**Step 3 of 4 — Output channels**\nAssign a Discord text channel for each translation language. Choose a language, then its channel. You can leave languages unassigned and return later.',
+        'output-channel': `Choose the Discord text channel where **${languageDisplayName(settings.setupProgress.outputLanguage)}** translations should be posted.`,
+        live: '**Step 4 of 4 — Combined live translations**\nChoose which enabled translation languages appear in the shared live feed, then choose its text channel. This does not change individual language-channel assignments. Press Finish setup when ready.',
+      };
+      return interaction.reply({ content: `${setupStatusMessage(interaction.guildId, interaction.guild)}\n\n**Server setup wizard**\nSelections are saved automatically. Continue and Finish buttons control when the wizard advances or closes.\n\n${prompts[step] || prompts.input}`, components: [...setupComponents(settings, interaction.guildId), new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:ignore-warnings').setLabel('Ignore current reminders').setStyle(ButtonStyle.Secondary))], flags: MessageFlags.Ephemeral });
     }
 
     if (interaction.commandName === 'user-setup') {
       const settings = getGuildSettings(interaction.guildId);
       if (!settings.inputLanguages.length) return interaction.reply({ content: 'This server uses unrestricted automatic language detection, so member-specific language preferences are unavailable. Ask an admin to enable input languages if you want a restricted language list.', flags: MessageFlags.Ephemeral });
       const selected = getUserLanguagePreferences(interaction.guildId, interaction.user.id).filter(code => settings.inputLanguages.includes(code));
-      return interaction.reply({ content: selected.length ? `Your current expected languages: **${selected.map(languageDisplayName).join(', ')}**. Select the languages you normally speak.` : 'You are currently using automatic detection. Select the languages you normally speak; you can choose more than one.', components: userSetupComponents(settings, selected), flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: selected.length ? `**Your current expected languages:** ${selected.map(languageDisplayName).join(', ')}\nSelect all languages you normally speak. These preferences help guide speech recognition and are saved automatically. Press Finish when done.` : 'You are currently using automatic detection. Select all languages you normally speak if you want to provide recognition hints. Your choices save automatically; press Finish when done.', components: userSetupComponents(settings, selected), flags: MessageFlags.Ephemeral });
     }
 
     if (interaction.commandName === 'join') {
