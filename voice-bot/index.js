@@ -226,7 +226,7 @@ function setupSummary(guildId, guild = null) {
   );
   return [
     '**Server setup summary**',
-    `Input languages: ${settings.inputLanguages.length ? settings.inputLanguages.map(languageDisplayName).join(', ') : 'none'}`,
+    `Input languages: ${settings.inputLanguages.length ? settings.inputLanguages.map(languageDisplayName).join(', ') : 'none (automatic detection)'}`,
     `Output languages: ${settings.targetLanguages.length ? settings.targetLanguages.map(languageDisplayName).join(', ') : settings.translationOutputsStatus === 'disabled' ? 'disabled intentionally' : 'none / not configured'}`,
     ...outputLines,
     `Live translations: ${settings.liveChannelId ? (guild && !guild.channels.cache.has(settings.liveChannelId) ? 'deleted/missing channel' : `<#${settings.liveChannelId}>`) : settings.liveFeedStatus === 'disabled' ? 'disabled intentionally' : settings.ignoredSetupWarnings.includes('live-channel') ? 'ignored for now' : 'not configured'}`,
