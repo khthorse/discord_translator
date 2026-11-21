@@ -903,7 +903,7 @@ async function onLanguageChannel(interaction) {
 
     const lines = Object.entries(mapping).map(([code, id]) => {
       const channel = interaction.guild.channels.cache.get(id);
-      return `• **${code}** → ${channel ? `<#${id}>` : `deleted/missing channel (${id})`}`;
+      return `• **${languageDisplayName(code)}** (${code}) → ${channel ? `<#${id}>` : `deleted/missing channel (${id})`}`;
     });
 
     return interaction.reply({
