@@ -139,6 +139,10 @@ const commands = [
     .setContexts(InteractionContextType.Guild),
 
   new SlashCommandBuilder()
+    .setName('user-setup')
+    .setDescription('Choose the languages you normally speak'),
+
+  new SlashCommandBuilder()
     .setName('translate')
     .setDescription('Translate text or recent channel messages')
     .addSubcommand(sub => sub
