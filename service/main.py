@@ -205,7 +205,9 @@ def process(
         # candidate list. If Whisper's automatic detection falls outside that
         # set, use its language probabilities to choose the best allowed
         # language and perform one corrected transcription (not one per option).
+        correction_duration = 0.0
         if allowed_languages and lang not in allowed_languages:
+            correction_started = time.perf_counter()
             probabilities = dict(info.all_language_probs or [])
             corrected_language = max(
                 allowed_languages,
@@ -224,9 +226,9 @@ def process(
                     for segment in corrected_segments
                     if segment.no_speech_prob < 0.7
                 ).strip()
-                if corrected_text:
-                    text = corrected_text
-                    lang = corrected_language
+                text = corrected_text
+                lang = corrected_language
+            correction_duration = time.perf_counter() - correction_started
 
         stt_duration = time.perf_counter() - stt_started
     finally:
@@ -276,6 +278,7 @@ def process(
     print(
         f"[{speaker}] ({lang}) {text!r} -> {translations or None}  "
         f"[queue {queue_wait:.2f}s, stt {stt_duration:.2f}s, "
+        f"correction {correction_duration:.2f}s, "
         f"translate {t2 - t1:.2f}s, total {t2 - t0:.2f}s]"
     )
 
