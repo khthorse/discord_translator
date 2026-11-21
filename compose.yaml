@@ -79,7 +79,6 @@ services:
       DATA_DIR: /data
       OVERLAY_RELAY_HOST: 0.0.0.0
       OVERLAY_RELAY_PORT: 8765
-      LLM_BASE_URL: http://ollama:11434
     volumes:
       - ./data/voice-bot:/data
     depends_on:
