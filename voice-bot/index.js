@@ -357,6 +357,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.inGuild()) return;
 
   try {
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('language-channel:assign:')) {
+      if (!hasManageServerPermission(interaction)) return interaction.reply({ content: 'You need the Manage Server permission to change these settings.', flags: MessageFlags.Ephemeral });
+      const channelId = interaction.customId.split(':')[2];
+      const channel = await getGuildTextChannel(interaction.guild, channelId);
+      const language = interaction.values[0];
+      const settings = getGuildSettings(interaction.guildId);
+      if (!channel || !settings.targetLanguages.includes(language)) {
+        return interaction.update({ content: 'That channel or target language is no longer available. Run /language-channel set again.', components: [] });
+      }
+      const perms = channel.permissionsFor(client.user);
+      if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) {
+        return interaction.update({ content: `I need View Channel + Send Messages permissions in <#${channel.id}>.`, components: [] });
+      }
+      languageChannels[interaction.guildId] ??= {};
+      languageChannels[interaction.guildId][language] = channel.id;
+      saveLanguageChannels();
+      return interaction.update({ content: `Speech and translations in **${languageDisplayName(language)}** will be posted in <#${channel.id}>.`, components: [] });
+    }
     if (interaction.isStringSelectMenu() && interaction.customId === 'user-setup:languages') {
       const settings = getGuildSettings(interaction.guildId);
       const selected = interaction.values.filter(code => settings.inputLanguages.includes(code));
@@ -670,15 +688,29 @@ async function onLanguageChannel(interaction) {
     });
   }
 
-  const language = interaction.options.getString('language', true)
-    .trim()
-    .toLowerCase();
+  if (action === 'set') {
+    const channel = interaction.options.getChannel('channel', true);
+    if (!channel.isTextBased() || !channel.guild) {
+      return interaction.reply({ content: 'Choose a server text channel.', flags: MessageFlags.Ephemeral });
+    }
+    const perms = channel.permissionsFor(client.user);
+    if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) {
+      return interaction.reply({ content: `I need View Channel + Send Messages permissions in <#${channel.id}>.`, flags: MessageFlags.Ephemeral });
+    }
+    const targets = getGuildSettings(interaction.guildId).targetLanguages.slice(0, 25);
+    if (!targets.length) {
+      return interaction.reply({ content: 'Enable at least one server target language first with /language target add.', flags: MessageFlags.Ephemeral });
+    }
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId(`language-channel:assign:${channel.id}`)
+      .setPlaceholder('Choose the output language')
+      .addOptions(targets.map(code => ({ label: languageDisplayName(code), value: code })));
+    return interaction.reply({ content: `Choose which language should be posted in <#${channel.id}>:`, components: [new ActionRowBuilder().addComponents(menu)], flags: MessageFlags.Ephemeral });
+  }
 
+  const language = interaction.options.getString('language', true).trim().toLowerCase();
   if (!/^[a-z]{2,3}$/.test(language)) {
-    return interaction.reply({
-      content: 'Use a 2- or 3-letter language code, such as `en`, `es`, `no`, or `de`.',
-      flags: MessageFlags.Ephemeral,
-    });
+    return interaction.reply({ content: 'Use a 2- or 3-letter language code, such as `en`, `es`, `no`, or `de`.', flags: MessageFlags.Ephemeral });
   }
 
   if (action === 'remove') {
@@ -703,38 +735,6 @@ async function onLanguageChannel(interaction) {
     });
   }
 
-  if (action === 'set') {
-    const channel = interaction.options.getChannel('channel', true);
-
-    if (!channel.isTextBased() || !channel.guild) {
-      return interaction.reply({
-        content: 'Choose a server text channel.',
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
-    const perms = channel.permissionsFor(client.user);
-
-    if (!perms?.has([
-      PermissionFlagsBits.ViewChannel,
-      PermissionFlagsBits.SendMessages,
-    ])) {
-      return interaction.reply({
-        content: `I need View Channel + Send Messages permissions in <#${channel.id}>.`,
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
-    languageChannels[interaction.guildId] ??= {};
-    languageChannels[interaction.guildId][language] = channel.id;
-
-    saveLanguageChannels();
-
-    return interaction.reply({
-      content: `Speech and translations in **${language}** will be posted in <#${channel.id}>.`,
-      flags: MessageFlags.Ephemeral,
-    });
-  }
 }
 
 // -------------------------------------------------------- language settings ---
