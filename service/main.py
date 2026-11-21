@@ -150,6 +150,7 @@ def process(
     speaker: str,
     candidates: list[str],
     targets: list[str],
+    expected_languages: list[str],
     translate_from: str,
     translate_enabled: bool,
 ) -> dict:
@@ -193,11 +194,33 @@ def process(
 
         lang = info.language
 
-        # When several input languages are configured, preserve the existing
-        # preference for that configured set if Whisper detects another one.
-        if candidates and lang not in candidates:
+        # A member's expected languages take precedence over the server-wide
+        # candidate list. If Whisper's automatic detection falls outside that
+        # set, use its language probabilities to choose the best allowed
+        # language and perform one corrected transcription (not one per option).
+        allowed_languages = expected_languages or candidates
+        if allowed_languages and lang not in allowed_languages:
             probabilities = dict(info.all_language_probs or [])
-            lang = max(candidates, key=lambda code: probabilities.get(code, 0.0))
+            corrected_language = max(
+                allowed_languages,
+                key=lambda code: probabilities.get(code, 0.0),
+            )
+            if corrected_language != lang:
+                corrected_segments, corrected_info = model.transcribe(
+                    audio,
+                    language=corrected_language,
+                    beam_size=WHISPER_BEAM_SIZE,
+                    vad_filter=True,
+                    condition_on_previous_text=False,
+                )
+                corrected_text = " ".join(
+                    segment.text.strip()
+                    for segment in corrected_segments
+                    if segment.no_speech_prob < 0.7
+                ).strip()
+                if corrected_text:
+                    text = corrected_text
+                    lang = corrected_info.language
 
         stt_duration = time.perf_counter() - stt_started
     finally:
@@ -263,6 +286,7 @@ async def process_endpoint(
     speaker: str = "unknown",
     candidates: str = "",
     targets: str = "",
+    expected_languages: str = "",
     translate_from: str = "",
     translate: bool = True,
 ):
@@ -280,6 +304,7 @@ async def process_endpoint(
         speaker,
         split_codes(candidates),
         split_codes(targets),
+        split_codes(expected_languages),
         translate_from.strip().lower(),
         translate,
     )
