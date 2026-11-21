@@ -263,7 +263,9 @@ function setupComponents(settings, guildId) {
       .setMinValues(1)
       .setMaxValues(languages.length)
       .addOptions(languages.map(code => ({ label: languageDisplayName(code), value: code, default: selected.includes(code) })));
-    return [new ActionRowBuilder().addComponents(menu)];
+    const rows = [new ActionRowBuilder().addComponents(menu)];
+    if (isInput) rows.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:automatic-input').setLabel('Use unrestricted automatic detection').setStyle(ButtonStyle.Secondary)));
+    return rows;
   }
   if (progress.step === 'outputs') {
     const targets = settings.targetLanguages.slice(0, 25);
@@ -474,6 +476,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!hasManageServerPermission(interaction)) return interaction.reply({ content: 'You need the Manage Server permission to run server setup.', flags: MessageFlags.Ephemeral });
       const settings = getGuildSettings(interaction.guildId);
       const id = interaction.customId;
+      if (id === 'setup:automatic-input') {
+        settings.inputLanguages = [];
+        saveSetupStep(interaction.guildId, settings, 'target');
+        return interaction.update({ content: 'Automatic language detection is enabled for the server. Step 2 of 4: choose translation output languages.', components: setupComponents(settings, interaction.guildId) });
+      }
       if (id === 'setup:input') {
         settings.inputLanguages = [...interaction.values];
         saveSetupStep(interaction.guildId, settings, 'target');
