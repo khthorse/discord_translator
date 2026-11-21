@@ -1,0 +1,93 @@
+services:
+  whisper:
+    build:
+      context: .
+      dockerfile: docker/whisper.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SERVICE_HOST: 0.0.0.0
+      SERVICE_PORT: 8000
+      HF_HOME: /models/huggingface
+      XDG_CACHE_HOME: /models/cache
+    volumes:
+      - whisper_models:/models
+    networks:
+      - backend
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - backend
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  bot:
+    build:
+      context: .
+      dockerfile: docker/bot.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SERVICE_URL: http://whisper:8000
+      DATA_DIR: /data
+      OVERLAY_RELAY_HOST: 0.0.0.0
+      OVERLAY_RELAY_PORT: 8765
+      LLM_BASE_URL: http://ollama:11434
+    volumes:
+      - ./data/voice-bot:/data
+    depends_on:
+      whisper:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    networks:
+      - backend
+      - edge
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - bot
+    networks:
+      - edge
+
+networks:
+  backend:
+    driver: bridge
+  edge:
+    driver: bridge
+
+volumes:
+  whisper_models:
+  ollama_models:
