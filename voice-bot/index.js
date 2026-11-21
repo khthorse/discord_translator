@@ -1128,6 +1128,7 @@ async function onLiveChannel(interaction) {
   if (action === 'remove') {
     settings.liveChannelId = null;
     settings.liveFeedStatus = 'disabled';
+    settings.ignoredSetupWarnings = settings.ignoredSetupWarnings.filter(id => id !== 'live-channel');
     saveGuildLanguageSettings();
 
     return interaction.reply({
@@ -1160,6 +1161,7 @@ async function onLiveChannel(interaction) {
 
     settings.liveChannelId = channel.id;
     settings.liveFeedStatus = 'configured';
+    settings.ignoredSetupWarnings = settings.ignoredSetupWarnings.filter(id => id !== 'live-channel');
     saveGuildLanguageSettings();
 
     return interaction.reply({
