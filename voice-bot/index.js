@@ -134,6 +134,8 @@ function defaultGuildSettings() {
     standardLanguages: ['en', 'es'],
     liveLanguages: ['en', 'es'],
     liveChannelId: null,
+    liveFeedStatus: 'not-configured',
+    ignoredSetupWarnings: [],
   };
 }
 
@@ -151,6 +153,8 @@ function getGuildSettings(guildId) {
   settings.standardLanguages ??= ['en', 'es'];
   settings.liveLanguages ??= ['en', 'es'];
   settings.liveChannelId ??= null;
+  settings.liveFeedStatus ??= settings.liveChannelId ? 'configured' : 'not-configured';
+  settings.ignoredSetupWarnings ??= [];
 
   // Live languages must always be enabled translation targets.
   settings.liveLanguages = settings.liveLanguages.filter(
@@ -225,6 +229,25 @@ function setupSummary(guildId) {
     ...outputLines,
     `Live translations: ${settings.liveChannelId ? `<#${settings.liveChannelId}>` : 'disabled / not configured'}`,
   ].join('\n');
+}
+
+
+function getSetupWarnings(guildId) {
+  const settings = getGuildSettings(guildId);
+  const mappings = languageChannels[guildId] || {};
+  const warnings = [];
+  const missingOutputs = settings.targetLanguages.filter(code => !mappings[code]);
+  if (missingOutputs.length) warnings.push({ id: 'output-channels', text: `No output channel assigned for: ${missingOutputs.map(languageDisplayName).join(', ')}.` });
+  if (!settings.targetLanguages.length) warnings.push({ id: 'target-languages', text: 'No translation output languages are enabled.' });
+  if (!settings.liveChannelId && settings.liveFeedStatus !== 'disabled') warnings.push({ id: 'live-channel', text: 'The combined live translations channel is not configured.' });
+  return warnings.filter(item => !settings.ignoredSetupWarnings.includes(item.id));
+}
+
+function setupStatusMessage(guildId) {
+  const warnings = getSetupWarnings(guildId);
+  const status = setupSummary(guildId);
+  if (!warnings.length) return `${status}\\n\\nSetup checks look good.`;
+  return `${status}\\n\\n**Needs attention**\\n${warnings.map(item => `• ${item.text}`).join('\\n')}`;
 }
 
 function setupComponents(settings, guildId) {
@@ -454,6 +477,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const perms = channel.permissionsFor(client.user);
         if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) return interaction.update({ content: `I need View Channel + Send Messages permissions in <#${channel.id}>.`, components: setupComponents(settings, interaction.guildId) });
         settings.liveChannelId = channel.id;
+        settings.liveFeedStatus = 'configured';
         saveGuildLanguageSettings();
         delete settings.setupProgress;
         saveGuildLanguageSettings();
@@ -461,6 +485,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       if (id === 'setup:disable-live') {
         settings.liveChannelId = null;
+        settings.liveFeedStatus = 'disabled';
         delete settings.setupProgress;
         saveGuildLanguageSettings();
         return interaction.update({ content: `Setup complete. Live translations are disabled.\n\n${setupSummary(interaction.guildId)}`, components: [] });
@@ -517,6 +542,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.commandName === 'setup') {
       if (!await requireManageServer(interaction)) return;
       const settings = getGuildSettings(interaction.guildId);
+      settings.ignoredSetupWarnings = [];
       settings.setupProgress ??= { step: 'input' };
       saveGuildLanguageSettings();
       const step = settings.setupProgress.step;
@@ -525,7 +551,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           : step === 'outputs' ? 'Step 3 of 4: assign output channels. Choose a language, then its channel.'
             : step === 'output-channel' ? `Choose the channel for **${languageDisplayName(settings.setupProgress.outputLanguage)}**.`
               : 'Step 4 of 4: choose the combined live translations channel, or disable the live feed.';
-      return interaction.reply({ content: `Server setup wizard (progress is saved automatically).\n${prompt}`, components: setupComponents(settings, interaction.guildId), flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: `${setupStatusMessage(interaction.guildId)}\n\nServer setup wizard (progress is saved automatically).\n${prompt}`, components: setupComponents(settings, interaction.guildId), flags: MessageFlags.Ephemeral });
     }
 
     if (interaction.commandName === 'user-setup') {
