@@ -227,13 +227,23 @@ Create the text channels you want to use. For example:
 - `#español` — Spanish speech and Spanish translations.
 - `#live-translations` — combined live feed.
 
-As a server admin, map language codes to their public output channels:
+As a server admin, run `/setup` for the guided configuration wizard. It lets you:
 
-```text
-/language-channel set language:en channel:#english
-/language-channel set language:es channel:#español
-/live-channel set channel:#live-translations
-```
+- Choose the languages members may speak, or enable unrestricted automatic detection.
+- Choose translation output languages, or disable translation outputs.
+- Assign a public text channel to each output language using language names and channel selectors.
+- Configure the combined live translations channel, or intentionally disable it.
+
+The wizard saves progress after each step. If it is interrupted or the bot restarts, run
+`/setup` again to resume. You can still use the individual admin commands if preferred.
+
+For manual output-channel setup, run `/language-channel set channel:#english`, then choose the
+language name from the menu. Use `/language-channel remove` to choose a mapping to remove.
+
+Members can run `/user-setup` to choose multiple expected spoken languages from the server's
+enabled input languages. Their preferences are saved per server and member. They can select
+`Use automatic detection` at any time to clear their personal preferences. If the server has
+unrestricted automatic detection enabled, member-specific language selection is unavailable.
 
 Join a Discord voice channel, then run `/join` in a server text channel. The bot joins your
 voice channel and starts listening. Run `/leave` when finished.
@@ -265,7 +275,7 @@ These configuration commands require the Discord **Manage Server** permission.
 | `/language standard list` | Show the standard pair. |
 | `/language input list` | List languages Whisper is allowed to recognize. |
 | `/language input add language:no` | Add a recognized input language. |
-| `/language input remove language:no` | Remove an input language. At least one must remain. |
+| `/language input remove language:no` | Remove an input language. Use `/setup` to switch to unrestricted automatic detection. |
 | `/language target list` | List translation targets. |
 | `/language target add language:de` | Add a translation target. |
 | `/language target remove language:de` | Remove a target (the standard pair cannot be removed until the pair is changed). |
@@ -273,8 +283,10 @@ These configuration commands require the Discord **Manage Server** permission.
 | `/language live add language:de` | Include an enabled target language in the live feed. |
 | `/language live remove language:de` | Remove a language from the live feed. |
 | `/language-channel list` | Show language-to-channel mappings. |
-| `/language-channel set language:en channel:#english` | Set the public channel for a language. |
-| `/language-channel remove language:en` | Remove a language channel mapping. |
+| `/language-channel set channel:#english` | Choose a language name and set its public output channel. |
+| `/language-channel remove` | Choose a language mapping to remove. |
+| `/setup` | Run or resume the guided server setup wizard. |
+| `/user-setup` | Let a member choose their expected spoken languages. |
 | `/live-channel show` | Show the combined live channel. |
 | `/live-channel set channel:#live-translations` | Set the combined live channel. |
 | `/live-channel remove` | Disable the combined live feed. |
