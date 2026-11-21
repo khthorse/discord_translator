@@ -13,6 +13,8 @@ import {
   ButtonBuilder,
   ButtonStyle,
   StringSelectMenuBuilder,
+  ChannelSelectMenuBuilder,
+  ChannelType,
   escapeMarkdown,
 } from 'discord.js';
 import {
@@ -189,6 +191,8 @@ function languageDisplayName(code) {
   return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) || code;
 }
 
+const SETUP_LANGUAGE_CODES = ['en', 'es', 'no', 'nn', 'sv', 'da', 'fi', 'de', 'fr', 'it', 'pt', 'nl', 'pl', 'ru', 'uk', 'tr', 'ar', 'ja', 'ko', 'zh'];
+
 function userSetupComponents(settings, selected) {
   const allowed = settings.inputLanguages.slice(0, 25);
   const menu = new StringSelectMenuBuilder()
@@ -206,6 +210,58 @@ function userSetupComponents(settings, selected) {
   ];
 }
 
+
+
+function setupSummary(guildId) {
+  const settings = getGuildSettings(guildId);
+  const mappings = languageChannels[guildId] || {};
+  const outputLines = settings.targetLanguages.map(code =>
+    `• ${languageDisplayName(code)}: ${mappings[code] ? `<#${mappings[code]}>` : 'not assigned'}`,
+  );
+  return [
+    '**Server setup summary**',
+    `Input languages: ${settings.inputLanguages.length ? settings.inputLanguages.map(languageDisplayName).join(', ') : 'none'}`,
+    `Output languages: ${settings.targetLanguages.length ? settings.targetLanguages.map(languageDisplayName).join(', ') : 'none'}`,
+    ...outputLines,
+    `Live translations: ${settings.liveChannelId ? `<#${settings.liveChannelId}>` : 'disabled / not configured'}`,
+  ].join('\n');
+}
+
+function setupComponents(settings, guildId) {
+  const progress = settings.setupProgress || { step: 'input' };
+  const languages = SETUP_LANGUAGE_CODES;
+  if (progress.step === 'input' || progress.step === 'target') {
+    const isInput = progress.step === 'input';
+    const selected = isInput ? settings.inputLanguages : settings.targetLanguages;
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId(isInput ? 'setup:input' : 'setup:target')
+      .setPlaceholder(isInput ? 'Select languages people may speak' : 'Select translation output languages')
+      .setMinValues(1)
+      .setMaxValues(languages.length)
+      .addOptions(languages.map(code => ({ label: languageDisplayName(code), value: code, default: selected.includes(code) })));
+    return [new ActionRowBuilder().addComponents(menu)];
+  }
+  if (progress.step === 'outputs') {
+    const targets = settings.targetLanguages.slice(0, 25);
+    if (!targets.length) return [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:finish').setLabel('Finish without output channels').setStyle(ButtonStyle.Secondary))];
+    const menu = new StringSelectMenuBuilder().setCustomId('setup:output-language').setPlaceholder('Choose an output language to assign').addOptions(targets.map(code => ({ label: languageDisplayName(code), value: code })));
+    return [new ActionRowBuilder().addComponents(menu), new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:outputs-done').setLabel('Done assigning channels').setStyle(ButtonStyle.Secondary))];
+  }
+  if (progress.step === 'output-channel') {
+    const menu = new ChannelSelectMenuBuilder().setCustomId('setup:output-channel').setChannelTypes(ChannelType.GuildText).setPlaceholder('Choose the channel for this language');
+    return [new ActionRowBuilder().addComponents(menu)];
+  }
+  if (progress.step === 'live') {
+    const menu = new ChannelSelectMenuBuilder().setCustomId('setup:live-channel').setChannelTypes(ChannelType.GuildText).setPlaceholder('Choose the combined live translations channel');
+    return [new ActionRowBuilder().addComponents(menu), new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:disable-live').setLabel('Disable live translations').setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId('setup:finish').setLabel('Finish setup').setStyle(ButtonStyle.Success))];
+  }
+  return [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setup:restart').setLabel('Restart setup').setStyle(ButtonStyle.Secondary))];
+}
+
+function saveSetupStep(guildId, settings, step, extra = {}) {
+  settings.setupProgress = { ...(settings.setupProgress || {}), ...extra, step };
+  saveGuildLanguageSettings();
+}
 
 function getLanguageChannelId(guildId, language) {
   return languageChannels[guildId]?.[language] ?? null;
