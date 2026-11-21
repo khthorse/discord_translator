@@ -439,9 +439,14 @@ client.once(Events.ClientReady, (c) => {
 client.on(Events.GuildCreate, async (guild) => {
   try {
     const settings = getGuildSettings(guild.id);
-    const channel = guild.systemChannel || guild.channels.cache.find(candidate =>
-      candidate.isTextBased() && candidate.permissionsFor(client.user)?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]),
-    );
+    const canPostSetup = candidate => candidate?.isTextBased()
+      && candidate.permissionsFor(client.user)?.has([
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+      ]);
+    const channel = canPostSetup(guild.systemChannel)
+      ? guild.systemChannel
+      : guild.channels.cache.find(canPostSetup);
     if (!channel?.isTextBased()) return;
     const warnings = getSetupWarnings(guild.id);
     const components = warnings.length ? [new ActionRowBuilder().addComponents(
