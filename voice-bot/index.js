@@ -615,7 +615,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (interaction.commandName === 'user-setup') {
       const settings = getGuildSettings(interaction.guildId);
-      if (!settings.inputLanguages.length) return interaction.reply({ content: 'This server has not enabled any input languages yet. Ask a server admin to configure them with /language input add.', flags: MessageFlags.Ephemeral });
+      if (!settings.inputLanguages.length) return interaction.reply({ content: 'This server uses unrestricted automatic language detection, so member-specific language preferences are unavailable. Ask an admin to enable input languages if you want a restricted language list.', flags: MessageFlags.Ephemeral });
       const selected = getUserLanguagePreferences(interaction.guildId, interaction.user.id).filter(code => settings.inputLanguages.includes(code));
       return interaction.reply({ content: selected.length ? `Your current expected languages: **${selected.map(languageDisplayName).join(', ')}**. Select the languages you normally speak.` : 'You are currently using automatic detection. Select the languages you normally speak; you can choose more than one.', components: userSetupComponents(settings, selected), flags: MessageFlags.Ephemeral });
     }
