@@ -413,6 +413,68 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.inGuild()) return;
 
   try {
+    if ((interaction.isStringSelectMenu() || interaction.isChannelSelectMenu() || interaction.isButton()) && interaction.customId.startsWith('setup:')) {
+      if (!hasManageServerPermission(interaction)) return interaction.reply({ content: 'You need the Manage Server permission to run server setup.', flags: MessageFlags.Ephemeral });
+      const settings = getGuildSettings(interaction.guildId);
+      const id = interaction.customId;
+      if (id === 'setup:input') {
+        settings.inputLanguages = [...interaction.values];
+        saveSetupStep(interaction.guildId, settings, 'target');
+        return interaction.update({ content: 'Step 2 of 4: choose the languages the bot should translate into.', components: setupComponents(settings, interaction.guildId) });
+      }
+      if (id === 'setup:target') {
+        settings.targetLanguages = [...interaction.values];
+        settings.liveLanguages = settings.liveLanguages.filter(code => settings.targetLanguages.includes(code));
+        saveSetupStep(interaction.guildId, settings, 'outputs');
+        return interaction.update({ content: 'Step 3 of 4: assign an output channel to each language. Choose a language, then choose its channel. You can leave any language unassigned for now.', components: setupComponents(settings, interaction.guildId) });
+      }
+      if (id === 'setup:output-language') {
+        saveSetupStep(interaction.guildId, settings, 'output-channel', { outputLanguage: interaction.values[0] });
+        return interaction.update({ content: `Choose the text channel for **${languageDisplayName(interaction.values[0])}**:`, components: setupComponents(settings, interaction.guildId) });
+      }
+      if (id === 'setup:output-channel') {
+        const language = settings.setupProgress?.outputLanguage;
+        const channel = await getGuildTextChannel(interaction.guild, interaction.values[0]);
+        if (!language || !settings.targetLanguages.includes(language) || !channel) return interaction.update({ content: 'That language or channel is no longer available. Please choose again.', components: setupComponents(settings, interaction.guildId) });
+        const perms = channel.permissionsFor(client.user);
+        if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) return interaction.update({ content: `I need View Channel + Send Messages permissions in <#${channel.id}>. Choose another channel.`, components: setupComponents(settings, interaction.guildId) });
+        languageChannels[interaction.guildId] ??= {};
+        languageChannels[interaction.guildId][language] = channel.id;
+        saveLanguageChannels();
+        saveSetupStep(interaction.guildId, settings, 'outputs', { outputLanguage: null });
+        return interaction.update({ content: `Assigned **${languageDisplayName(language)}** to <#${channel.id}>. Choose another language or continue.`, components: setupComponents(settings, interaction.guildId) });
+      }
+      if (id === 'setup:outputs-done') {
+        saveSetupStep(interaction.guildId, settings, 'live');
+        return interaction.update({ content: 'Step 4 of 4: choose the combined live translations channel, or disable the live feed.', components: setupComponents(settings, interaction.guildId) });
+      }
+      if (id === 'setup:live-channel') {
+        const channel = await getGuildTextChannel(interaction.guild, interaction.values[0]);
+        if (!channel) return interaction.update({ content: 'That channel is no longer available. Choose another.', components: setupComponents(settings, interaction.guildId) });
+        const perms = channel.permissionsFor(client.user);
+        if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) return interaction.update({ content: `I need View Channel + Send Messages permissions in <#${channel.id}>.`, components: setupComponents(settings, interaction.guildId) });
+        settings.liveChannelId = channel.id;
+        saveGuildLanguageSettings();
+        delete settings.setupProgress;
+        saveGuildLanguageSettings();
+        return interaction.update({ content: `Setup complete!\n\n${setupSummary(interaction.guildId)}`, components: [] });
+      }
+      if (id === 'setup:disable-live') {
+        settings.liveChannelId = null;
+        delete settings.setupProgress;
+        saveGuildLanguageSettings();
+        return interaction.update({ content: `Setup complete. Live translations are disabled.\n\n${setupSummary(interaction.guildId)}`, components: [] });
+      }
+      if (id === 'setup:finish') {
+        delete settings.setupProgress;
+        saveGuildLanguageSettings();
+        return interaction.update({ content: `Setup saved. You can run /setup again to change it.\n\n${setupSummary(interaction.guildId)}`, components: [] });
+      }
+      if (id === 'setup:restart') {
+        saveSetupStep(interaction.guildId, settings, 'input');
+        return interaction.update({ content: 'Step 1 of 4: choose the languages members may speak.', components: setupComponents(settings, interaction.guildId) });
+      }
+    }
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('language-channel:assign:')) {
       if (!hasManageServerPermission(interaction)) return interaction.reply({ content: 'You need the Manage Server permission to change these settings.', flags: MessageFlags.Ephemeral });
       const channelId = interaction.customId.split(':')[2];
@@ -442,6 +504,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return interaction.update({ content: 'Automatic language detection is enabled for you. Your personal preferences have been cleared.', components: [] });
     }
     if (!interaction.isChatInputCommand()) return;
+
+    if (interaction.commandName === 'setup') {
+      if (!await requireManageServer(interaction)) return;
+      const settings = getGuildSettings(interaction.guildId);
+      settings.setupProgress ??= { step: 'input' };
+      saveGuildLanguageSettings();
+      const step = settings.setupProgress.step;
+      const prompt = step === 'input' ? 'Step 1 of 4: choose the languages members may speak.'
+        : step === 'target' ? 'Step 2 of 4: choose the translation output languages.'
+          : step === 'outputs' ? 'Step 3 of 4: assign output channels. Choose a language, then its channel.'
+            : step === 'output-channel' ? `Choose the channel for **${languageDisplayName(settings.setupProgress.outputLanguage)}**.`
+              : 'Step 4 of 4: choose the combined live translations channel, or disable the live feed.';
+      return interaction.reply({ content: `Server setup wizard (progress is saved automatically).\n${prompt}`, components: setupComponents(settings, interaction.guildId), flags: MessageFlags.Ephemeral });
+    }
 
     if (interaction.commandName === 'user-setup') {
       const settings = getGuildSettings(interaction.guildId);
