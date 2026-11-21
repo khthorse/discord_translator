@@ -197,11 +197,7 @@ const commands = [
         .setRequired(true)))
     .addSubcommand(sub => sub
       .setName('remove')
-      .setDescription('Remove a language channel mapping')
-      .addStringOption(option => option
-        .setName('language')
-        .setDescription('Language code to remove, e.g. en')
-        .setRequired(true)))
+      .setDescription('Choose a language mapping to remove'))
     .addSubcommand(sub => sub
       .setName('list')
       .setDescription('List configured language channels'))
