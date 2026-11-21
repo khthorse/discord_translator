@@ -971,6 +971,7 @@ async function onLanguage(interaction) {
     for (const code of settings.standardLanguages) {
       if (!settings.targetLanguages.includes(code)) settings.targetLanguages.push(code);
     }
+    settings.translationOutputsStatus = 'configured';
     saveGuildLanguageSettings();
     return interaction.reply({
       content: `Standard pair set to **${first} ↔ ${second}**. Both languages are enabled as translation targets.`,
@@ -1029,6 +1030,7 @@ async function onLanguage(interaction) {
     }
 
     languages.push(language);
+    if (group === 'target') settings.translationOutputsStatus = 'configured';
     saveGuildLanguageSettings();
 
     return interaction.reply({
@@ -1066,6 +1068,7 @@ async function onLanguage(interaction) {
       settings.liveLanguages = settings.liveLanguages.filter(
         code => code !== language,
       );
+      settings.translationOutputsStatus = settings.targetLanguages.length ? 'configured' : 'not-configured';
     }
 
     saveGuildLanguageSettings();
