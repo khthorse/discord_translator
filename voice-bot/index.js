@@ -1213,6 +1213,7 @@ async function handleUtterance(session, userId, pcm, turn, previousOutput, relea
         candidates: settings.inputLanguages.join(','),
         expected_languages: getUserLanguagePreferences(session.guild.id, userId)
           .filter(language => settings.inputLanguages.includes(language)).join(','),
+        language_hint: turn.detectedLanguage || '',
         targets: settings.targetLanguages.join(','),
         translate: settings.targetLanguages.length > 0 ? 'true' : 'false',
       });
@@ -1226,6 +1227,11 @@ async function handleUtterance(session, userId, pcm, turn, previousOutput, relea
 
       if (!res.ok) throw new Error(`service answered HTTP ${res.status}`);
       result = await res.json();
+      // All segments emitted from the same captured speech turn share this
+      // language decision. A fresh turn object resets the hint automatically.
+      if (!turn.detectedLanguage && result.language) {
+        turn.detectedLanguage = result.language;
+      }
     } catch (err) {
       console.error('Could not reach the Python service:', err.message);
       return;
