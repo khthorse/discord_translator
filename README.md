@@ -605,15 +605,71 @@ Whisper and Ollama models as well.
 
 ### Check logs and service health
 
+First, list the services defined in the Compose file and check their current status:
+
 ```powershell
+docker compose config --services
 docker compose ps -a
-docker compose logs --tail 100 bot whisper ollama
+```
+
+Use the service name at the end of `docker compose logs` to choose which service
+to inspect. The service names in this deployment are:
+
+| Service | What it runs |
+|---|---|
+| `bot` | Discord bot and authenticated overlay relay |
+| `whisper` | Speech recognition and translation API |
+| `ollama` | Local Ollama model server |
+| `ollama-model-init` | One-shot task that downloads the configured model |
+| `cloudflared` | Optional Cloudflare Tunnel connector (when the `tunnel` profile is enabled) |
+
+For example, follow only the bot's logs live:
+
+```powershell
+docker compose logs -f bot
+```
+
+Replace `bot` with any service name from the table to watch that service instead.
+You can also watch more than one selected service by listing their names:
+
+```powershell
+docker compose logs -f bot whisper
+```
+
+Omit the service names to watch all services:
+
+```powershell
+docker compose logs -f
+```
+
+Press `Ctrl+C` to stop following the logs; this does **not** stop the containers.
+
+Useful options can be combined with a selected service:
+
+```powershell
+# Show only the latest 100 lines from the bot
+docker compose logs --tail 100 bot
+
+# Show bot logs from the last 10 minutes
+docker compose logs --since 10m bot
+
+# Follow the bot live and include timestamps
+docker compose logs -f -t bot
+
+# Inspect the one-shot model download task
 docker compose logs ollama-model-init
-docker compose exec ollama ollama ps
 ```
 
 The Whisper logs include queue wait, transcription, translation, and total processing
-times. `ollama ps` shows whether the model is loaded and which processor is being used.
+times. `ollama ps` shows whether the model is loaded and which processor is being used:
+
+```powershell
+docker compose exec ollama ollama ps
+```
+
+Use `docker compose logs --help` to see all available log options. See the
+[Docker Compose logs reference](https://docs.docker.com/reference/cli/docker/compose/logs/)
+for details.
 
 ### Optional Cloudflare Tunnel connector
 
