@@ -225,6 +225,13 @@ commands are changed. It registers the commands for the server specified by
 The bot and Python service must both be running. The bot sends audio to
 `SERVICE_URL`, which defaults to `http://127.0.0.1:8000`.
 
+Before deploying source changes, run the bot's JavaScript syntax checks from
+`voice-bot/` with:
+
+```powershell
+npm test
+```
+
 ## 6. Configure Discord channels and start translating
 
 Create the text channels you want to use. For example:
