@@ -277,7 +277,7 @@ def process(
 
     print(
         f"[{speaker}] ({lang}) {text!r} -> {translations or None}  "
-        f"[queue {queue_wait:.2f}s, stt {stt_duration:.2f}s, "
+        f"[queue {queue_wait:.2f}s, stt {stt_duration - correction_duration:.2f}s, "
         f"correction {correction_duration:.2f}s, "
         f"translate {t2 - t1:.2f}s, total {t2 - t0:.2f}s]"
     )
