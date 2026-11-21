@@ -183,14 +183,10 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand(sub => sub
       .setName('set')
-      .setDescription('Set the channel for a language code')
-      .addStringOption(option => option
-        .setName('language')
-        .setDescription('Language code, e.g. en or es')
-        .setRequired(true))
+      .setDescription('Choose a language and its output channel')
       .addChannelOption(option => option
         .setName('channel')
-        .setDescription('Text channel for this language')
+        .setDescription('Text channel for the selected language')
         .addChannelTypes(ChannelType.GuildText)
         .setRequired(true)))
     .addSubcommand(sub => sub
