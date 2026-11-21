@@ -14,6 +14,8 @@ import time
 import wave
 from pathlib import Path
 
+from language_detection import best_allowed_language, requested_language_hint
+
 # ---------------------------------------------------------------- CUDA setup ---
 
 # Make NVIDIA CUDA DLLs available to CTranslate2 on Windows.
@@ -177,11 +179,9 @@ def process(
         # detect_language() separately first would run an additional encoder
         # pass over every audio chunk.
         allowed_languages = expected_languages or candidates
-        requested_language = (
-            language_hint
-            if language_hint in allowed_languages
-            else allowed_languages[0] if len(allowed_languages) == 1
-            else None
+        requested_language = requested_language_hint(
+            allowed_languages,
+            language_hint,
         )
 
         segments, info = model.transcribe(
@@ -209,9 +209,9 @@ def process(
         if allowed_languages and lang not in allowed_languages:
             correction_started = time.perf_counter()
             probabilities = dict(info.all_language_probs or [])
-            corrected_language = max(
+            corrected_language = best_allowed_language(
                 allowed_languages,
-                key=lambda code: probabilities.get(code, 0.0),
+                probabilities,
             )
             if corrected_language != lang:
                 corrected_segments, corrected_info = model.transcribe(
