@@ -55,6 +55,19 @@ services:
       retries: 5
       start_period: 30s
 
+
+  ollama-model-init:
+    image: ollama/ollama:latest
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    command: ["pull", "${LLM_MODEL:-translategemma:4b}"]
+    depends_on:
+      ollama-model-init:
+        condition: service_completed_successfully
+    networks:
+      - backend
+
   bot:
     build:
       context: .
