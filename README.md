@@ -535,9 +535,11 @@ docker compose ps
 docker compose logs -f whisper ollama bot
 ```
 
-The Compose file reads the existing root `.env`. It overrides the internal URLs to use
-Compose DNS: the bot calls `http://whisper:8000` and the translator calls
-`http://ollama:11434`. Whisper and Ollama model data use named volumes. Bot settings,
+The Compose file reads the existing root `.env` for variable substitution, then passes only
+service-specific settings to each container (Discord credentials are not passed to Whisper
+or Ollama). It overrides the internal URLs to use Compose DNS: the bot calls
+`http://whisper:8000` and the Python translator calls `http://ollama:11434`. Whisper and
+Ollama model data use named volumes. Bot settings,
 translation history, and optional recordings are stored under the ignored local
 `data/voice-bot` directory.
 
