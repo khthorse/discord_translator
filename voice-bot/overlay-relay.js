@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 
 const port = Math.max(1, Number(process.env.OVERLAY_RELAY_PORT) || 8765);
+const host = process.env.OVERLAY_RELAY_HOST || '127.0.0.1';
 const clients = new Set();
 const availableLanguages = new Map();
 
@@ -181,8 +182,8 @@ export function startOverlayRelay() {
     console.error('[OVERLAY] Relay server error:', error);
   });
 
-  httpServer.listen(port, '127.0.0.1', () => {
-    console.log(`[OVERLAY] Relay listening on http://127.0.0.1:${port}`);
+  httpServer.listen(port, host, () => {
+    console.log(`[OVERLAY] Relay listening on http://${host}:${port}`);
   });
 
   return true;
