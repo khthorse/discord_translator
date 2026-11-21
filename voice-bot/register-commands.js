@@ -139,6 +139,12 @@ const commands = [
     .setContexts(InteractionContextType.Guild),
 
   new SlashCommandBuilder()
+    .setName('setup')
+    .setDescription('Configure this server with the guided setup wizard')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setContexts(InteractionContextType.Guild),
+
+  new SlashCommandBuilder()
     .setName('user-setup')
     .setDescription('Choose the languages you normally speak'),
 
