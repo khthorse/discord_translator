@@ -1090,6 +1090,7 @@ async function onLiveChannel(interaction) {
 
   if (action === 'remove') {
     settings.liveChannelId = null;
+    settings.liveFeedStatus = 'disabled';
     saveGuildLanguageSettings();
 
     return interaction.reply({
@@ -1121,6 +1122,7 @@ async function onLiveChannel(interaction) {
     }
 
     settings.liveChannelId = channel.id;
+    settings.liveFeedStatus = 'configured';
     saveGuildLanguageSettings();
 
     return interaction.reply({
