@@ -499,55 +499,121 @@ from the host's `.env` and restart the Discord bot.
 Keep the Python service and Discord bot running while translating.
 
 
-## Experimental Docker deployment
+## Docker deployment
 
-This optional deployment runs the backend alongside the native installation. Keep the
-native setup available until GPU inference, Discord voice networking, and relay access
-have been tested end to end.
+Docker Compose runs the Whisper API, Ollama, and Discord bot in containers. The optional
+Electron overlay remains a native Windows application. The native installation instructions
+above remain available as an alternative.
 
-### Services
+### Prerequisites
 
-- `whisper`: FastAPI and Faster-Whisper, with NVIDIA GPU reservation and persistent model cache.
-- `ollama`: Ollama with persistent model storage and NVIDIA GPU reservation.
+- Docker Desktop for Windows using the WSL2 backend.
+- A current NVIDIA Windows driver and working NVIDIA GPU support in Docker Desktop/WSL2
+  if you want GPU inference. CPU operation may be possible but is not the recommended
+  configuration for this deployment.
+- A Discord application and bot account configured as described above.
+- The project-root `.env` file with your Discord credentials.
+
+### Configure the environment
+
+From the repository root, copy the example environment file and edit the copy:
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+Set at least these values:
+
+```env
+DISCORD_TOKEN=YOUR_DISCORD_BOT_TOKEN
+DISCORD_CLIENT_ID=YOUR_DISCORD_APPLICATION_ID
+DISCORD_GUILD_ID=YOUR_DISCORD_SERVER_ID
+TRANSLATOR=openai
+LLM_MODEL=translategemma:4b
+```
+
+Keep the actual `.env` private and uncommitted. Do not paste it into support requests.
+The Compose configuration defaults to `translategemma:4b` when `LLM_MODEL` is empty or
+unset. You can choose another Ollama model by changing `LLM_MODEL`; the model-init
+service will pull that same configured model. For the bundled Ollama service, Compose
+sets the internal translator URL to `http://ollama:11434` automatically.
+
+The example file sets `TRANSLATOR=none` for a safe transcription-only native first test.
+For Docker translation with the bundled Ollama service, change it to
+`TRANSLATOR=openai` as shown above.
+
+### Build and start
+
+Run these commands from the repository root:
+
+```powershell
+docker compose config --quiet
+docker compose build
+docker compose up -d
+docker compose ps -a
+```
+
+The first build can take a while. On first startup, Compose waits for Ollama to become
+healthy, then runs the one-shot `ollama-model-init` service. That service executes
+`ollama pull` for the model named by `LLM_MODEL` (default: `translategemma:4b`).
+The Discord bot waits until that pull completes successfully before it starts. You do
+not need to run `docker compose exec ollama ollama pull ...` manually.
+
+To confirm the model initialization succeeded:
+
+```powershell
+docker compose logs ollama-model-init
+docker compose exec ollama ollama list
+```
+
+The init container showing `Exited` in `docker compose ps -a` is expected: it is a
+one-shot task and should exit successfully after printing `success`. If it fails, inspect
+its logs before troubleshooting the bot.
+
+### Services and networking
+
+- `whisper`: FastAPI and Faster-Whisper, with NVIDIA GPU reservation and a persistent
+  model cache.
+- `ollama`: Ollama with NVIDIA GPU reservation and persistent model storage.
+- `ollama-model-init`: one-shot model download that completes before the bot starts.
 - `bot`: Discord bot and authenticated overlay relay.
 - `cloudflared`: optional tunnel connector, enabled with the `tunnel` profile.
 - Electron remains a native Windows application.
 
 The Python API and Ollama have no published host ports. They are reachable only on the
 private backend network. The bot joins the backend and edge networks; the tunnel connector
-joins only the edge network. No ports are published to the host.
+joins only the edge network. No ports are published to the host. Compose overrides the
+internal URLs so the bot calls `http://whisper:8000` and the Python translator calls
+`http://ollama:11434`.
 
-### Prerequisites
+### Data persistence
 
-- Docker Desktop using its WSL2 backend.
-- A current NVIDIA Windows driver and working GPU access from WSL2/Docker.
-- The repository root `.env` populated with the existing Discord and relay credentials.
-- `TRANSLATOR=openai` and `LLM_MODEL=translategemma:4b` for the bundled Ollama service.
+Whisper and Ollama model data are stored in named Docker volumes
+(`whisper_models` and `ollama_models`). Bot settings, translation history, and optional
+recordings are stored under the ignored local `data/voice-bot` directory.
 
-### Build and start
-
-From the repository root:
-
-```powershell
-docker compose build
-docker compose up -d
-docker compose ps
-docker compose logs -f whisper ollama bot
-```
-
-The Compose file reads the existing root `.env` for variable substitution, then passes only
-service-specific settings to each container (Discord credentials are not passed to Whisper
-or Ollama). It overrides the internal URLs to use Compose DNS: the bot calls
-`http://whisper:8000` and the Python translator calls `http://ollama:11434`. Whisper and
-Ollama model data use named volumes. Bot settings,
-translation history, and optional recordings are stored under the ignored local
-`data/voice-bot` directory.
-
-After Ollama starts, download the configured model:
+Restarting or recreating containers does not remove the named volumes. The following
+command stops and removes containers and networks while preserving model data:
 
 ```powershell
-docker compose exec ollama ollama pull translategemma:4b
+docker compose down
 ```
+
+Do not use `docker compose down -v` unless you deliberately want to delete the downloaded
+Whisper and Ollama models as well.
+
+### Check logs and service health
+
+```powershell
+docker compose ps -a
+docker compose logs --tail 100 bot whisper ollama
+docker compose logs ollama-model-init
+docker compose exec ollama ollama ps
+```
+
+The Whisper logs include queue wait, transcription, translation, and total processing
+times. `ollama ps` shows whether the model is loaded and which processor is being used.
 
 ### Optional Cloudflare Tunnel connector
 
@@ -568,14 +634,32 @@ In Cloudflare, configure the public hostname to route to `http://bot:8765`. The 
 and bot share the private edge network. Expose the relay only; do not route public traffic
 to the Python API (8000) or Ollama (11434).
 
-### Stop and remove containers
+### Troubleshooting
 
-```powershell
-docker compose down
-```
+**The bot does not start and the model-init service failed**
 
-Named model volumes are preserved. Do not add `-v` unless you deliberately want to
-delete downloaded Whisper and Ollama model data.
+- Check `docker compose logs ollama-model-init` for the pull error.
+- Confirm Ollama is healthy with `docker compose ps -a`.
+- Confirm `LLM_MODEL` is a valid Ollama model name and that the host has enough disk space.
+
+**The bot joins Discord but no transcripts appear**
+
+- Check `docker compose ps -a` and confirm both `whisper` and `ollama` are healthy.
+- Inspect `docker compose logs --tail 100 bot whisper`.
+- Confirm the bot can view and send messages in the configured output channels.
+
+**Translation does not happen**
+
+- Confirm `TRANSLATOR=openai` in the root `.env`.
+- Confirm the configured model appears in `docker compose exec ollama ollama list`.
+- Check `docker compose logs whisper ollama` for API errors.
+
+**GPU inference is unavailable**
+
+- Confirm the NVIDIA driver is current and Docker Desktop is using WSL2.
+- Check `docker compose logs whisper ollama` for CUDA or GPU initialization errors.
+- Use `docker compose exec ollama ollama ps` while the model is loaded to inspect its
+  processor placement.
 
 ### Security and limitations
 
@@ -583,6 +667,7 @@ delete downloaded Whisper and Ollama model data.
 - The relay is the only service reachable from the tunnel network.
 - Python and Ollama ports are not published to the host.
 - Containers run as a non-root user where supported by the application image.
-- GPU reservation syntax must be validated with the installed Docker Desktop/Compose version.
-- This is an initial deployment template, not a security audit. Pin image versions and
-  review/update dependencies before using it as a long-running public service.
+- GPU reservation syntax depends on the installed Docker Desktop, NVIDIA driver, and
+  Compose versions.
+- Pin image versions and review dependencies periodically before using this as a
+  long-running public service.
