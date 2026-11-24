@@ -58,6 +58,16 @@ audio-tests/
 
 Use recordings you made or have permission to use. Keep private voice recordings and generated results out of Git.
 
+## Local resource monitor (Windows Docker host)
+
+The PowerShell monitor samples the dedicated Docker Compose project and, when available, NVIDIA GPU utilization, VRAM, temperature and power. Run it on the Docker host in a second terminal after starting a test:
+
+```powershell
+.\\audio-tests\\runner\\monitor.ps1 -RunId YOUR_RUN_ID
+```
+
+It writes one CSV row per running project container per sample under `audio-tests/results/`. Stop it with Ctrl+C. This monitor is intentionally host-side because a process inside the bot container cannot accurately inspect host GPU and all Docker container metrics without extra privileges.
+
 ## Next milestones
 
 - Dedicated sender-bot login and voice playback, one bot identity per simulated speaker.
