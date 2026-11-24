@@ -115,23 +115,43 @@ export async function playFixtures({ guildId, channelId, fixtures, gapMs = 1000 
 
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
   let connection;
+  let stage = 'client_login';
+  client.on('error', error => console.error(JSON.stringify({ event: 'speaker_client_error', message: error.message, stack: error.stack })));
   try {
+    console.log(JSON.stringify({ event: 'speaker_stage', stage }));
     await client.login(token);
+    console.log(JSON.stringify({ event: 'speaker_logged_in', speakerId: client.user.id }));
+    stage = 'guild_fetch';
+    console.log(JSON.stringify({ event: 'speaker_stage', stage, guildId }));
     const guild = await client.guilds.fetch(guildId);
+    stage = 'channel_fetch';
+    console.log(JSON.stringify({ event: 'speaker_stage', stage, channelId }));
     const channel = await guild.channels.fetch(channelId);
+    console.log(JSON.stringify({ event: 'speaker_channel_fetched', channelId, channelType: channel?.type ?? null, viewable: channel?.viewable ?? null, joinable: channel?.joinable ?? null }));
     if (!channel?.isVoiceBased() || !channel.joinable) {
       throw new Error('Speaker bot cannot join the selected voice channel. Check its channel access and Connect permission.');
     }
 
+    stage = 'voice_connection';
+    console.log(JSON.stringify({ event: 'speaker_stage', stage }));
     connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: guild.id,
       adapterCreator: guild.voiceAdapterCreator,
       selfDeaf: true,
     });
-    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+    connection.on('stateChange', (oldState, newState) => console.log(JSON.stringify({ event: 'speaker_voice_state', oldState: oldState.status, newState: newState.status })));
+    connection.on('error', error => console.error(JSON.stringify({ event: 'speaker_voice_error', message: error.message, stack: error.stack })));
+    try {
+      await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'speaker_voice_ready_failed', connectionState: connection.state.status, message: error.message, stack: error.stack }));
+      throw error;
+    }
 
+    stage = 'audio_player_setup';
     const player = createAudioPlayer();
+    player.on('error', error => console.error(JSON.stringify({ event: 'speaker_player_error', message: error.message, stack: error.stack })));
     connection.subscribe(player);
     console.log(JSON.stringify({
       event: 'speaker_playlist_ready',
@@ -142,6 +162,7 @@ export async function playFixtures({ guildId, channelId, fixtures, gapMs = 1000 
       gapMs,
     }));
 
+    stage = 'fixture_playback';
     for (const [index, fixture] of loadedFixtures.entries()) {
       if (index > 0 && gapMs > 0) await delay(gapMs);
       const scheduledAt = Date.now();
@@ -158,6 +179,7 @@ export async function playFixtures({ guildId, channelId, fixtures, gapMs = 1000 
       const startedAt = Date.now();
       const finished = waitForPlayerToFinish(player);
       const resource = createAudioResource(Readable.from([fixture.pcm]), { inputType: StreamType.Raw });
+      console.log(JSON.stringify({ event: 'speaker_playback_started', speakerId: client.user.id, fixtureId: fixture.id || `fixture-${index + 1}` }));
       player.play(resource);
       await finished;
 
@@ -173,6 +195,9 @@ export async function playFixtures({ guildId, channelId, fixtures, gapMs = 1000 
         fixtureDurationMs: fixture.durationMs,
       }));
     }
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'speaker_run_failed', stage, connectionState: connection?.state?.status ?? null, message: error.message, stack: error.stack }));
+    throw error;
   } finally {
     connection?.destroy();
     client.destroy();
