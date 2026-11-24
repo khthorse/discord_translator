@@ -71,7 +71,7 @@ async function loadManifest(manifestPath) {
     if (!speaker || typeof speaker.id !== 'string' || !/^[a-zA-Z0-9_-]{1,40}$/.test(speaker.id)) {
       throw new Error(`Manifest speaker ${index + 1} needs a valid id.`);
     }
-    if (!/^\\d{17,20}$/.test(String(speaker.discordUserId || ''))) {
+    if (!/^\d{17,20}$/.test(String(speaker.discordUserId || ''))) {
       throw new Error(`Manifest speaker ${speaker.id} needs a valid discordUserId.`);
     }
     if (speakerIds.has(speaker.id) || botIds.has(speaker.discordUserId)) {
