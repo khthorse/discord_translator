@@ -1765,6 +1765,7 @@ function startAudioTestControl() {
           joined: true,
           runId: session.testRunId,
           activeSpeakers: session.active.size,
+          queuedSpeakers: session.speakerQueues.size,
           pendingJobs: session.pendingJobs,
           runningJobs: session.runningJobs,
           waitingJobs: session.workQueue.length,
