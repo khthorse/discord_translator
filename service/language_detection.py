@@ -1,4 +1,21 @@
-"""Small, deterministic helpers for selecting a Whisper language hint."""
+"""Small, deterministic helpers for selecting an allowed Whisper language."""
+
+
+def resolve_allowed_languages(
+    server_languages: list[str],
+    user_languages: list[str],
+) -> list[str]:
+    """Apply the server allowlist, then let a user preference narrow it.
+
+    An empty server list means the server has not configured a restriction.
+    User preferences can narrow that unrestricted set, but cannot expand a
+    non-empty server allowlist.
+    """
+    if server_languages:
+        if user_languages:
+            return [code for code in server_languages if code in user_languages]
+        return list(server_languages)
+    return list(user_languages)
 
 
 def requested_language_hint(allowed_languages: list[str], language_hint: str) -> str | None:
