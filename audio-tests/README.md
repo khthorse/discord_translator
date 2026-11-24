@@ -1,17 +1,53 @@
 # Audio test harness
 
-This folder will contain the reproducible prerecorded-audio test runner.
+This folder contains the reproducible audio-test runner. Development is incremental: the first runner milestone controls the translator session; sender-bot playback and resource sampling are added next.
 
-## Planned test levels
+## Intended test flow
 
-1. **Offline pipeline replay** — feed paced PCM from per-speaker fixtures into the same segmentation and transcription path. This is repeatable and isolates recognition/queue behavior, but bypasses Discord transport and Opus decoding.
-2. **Discord voice test** — dedicated sender bot accounts play the fixtures into a selected voice channel. The dedicated test translator receives the audio through Discord's actual voice receiver and Opus decoder.
+1. Start the runner from a terminal on the Docker host (using `docker exec`).
+2. The runner starts a uniquely identified test session in the translator.
+3. Dedicated speaker bots join the selected Discord voice channel and play per-speaker fixtures on a shared timeline.
+4. The runner waits for processing to drain, stops the session, and saves run metadata and measurements.
+5. Translator-side JSONL events and local resource samples are correlated by run ID.
 
-The Discord test is the end-to-end check. It needs one distinct Discord bot identity per simulated speaker because Discord associates received audio with user IDs. Use a separate test translator bot identity too; a Discord bot token cannot safely run two simultaneous clients.
+The existing `/join` and `/leave` commands remain available for normal manual use. Automated tests use the private control API and do not require a Discord slash-command interaction.
+
+## Current implementation
+
+The first CLI milestone can start and stop a translator test session:
+
+```sh
+npm run audio-test -- start --guild-id GUILD_ID --channel-id VOICE_CHANNEL_ID
+npm run audio-test -- stop --guild-id GUILD_ID
+```
+
+Run these commands inside the dedicated test bot container. The start command prints a generated run ID. The stop command uses the existing translator cleanup behavior, including clearing the bot's configured output messages, as agreed for test runs.
+
+The control API is deliberately bound to `127.0.0.1` only. It is authenticated with `AUDIO_TEST_CONTROL_TOKEN`, and is intended to be called only by the runner process in the same container. It is not exposed through Cloudflare or a host-published port.
+
+Set these variables only on the dedicated test translator:
+
+- `AUDIO_TEST_CONTROL_ENABLED=true`
+- `AUDIO_TEST_CONTROL_TOKEN` to a unique random value of at least 32 characters
+- `AUDIO_TEST_SPEAKER_IDS` to comma-separated user IDs for the dedicated speaker bots
+
+Do not put real credentials in Git or logs.
+
+## Structured translator logs
+
+When a test run is active, the translator emits JSON events to Docker stdout and appends the same events to:
+
+```
+/data/audio-test-logs/<run-id>.jsonl
+```
+
+Events include session start/stop, captured segment duration and byte count, queue state/wait, service processing duration, detected language, translation count, empty results, errors, and total utterance processing time. Transcript text and audio content are not included.
+
+The JSONL file is stored under the bot's existing persistent `DATA_DIR` volume. Docker logs remain available as a secondary record.
 
 ## Planned fixture layout
 
-```text
+```
 audio-tests/
   fixtures/
     speaker-1/
@@ -20,25 +56,14 @@ audio-tests/
   results/
 ```
 
-Use recordings you made or have permission to use. Keep test audio out of Git if it contains private voices; a local fixture directory can be ignored by Git in a later setup step.
+Use recordings you made or have permission to use. Keep private voice recordings and generated results out of Git.
 
-## Translator control endpoint
+## Next milestones
 
-The first implementation adds a private control endpoint to the voice bot. It is disabled by default and is intended only for the dedicated test instance.
+- Dedicated sender-bot login and voice playback, one bot identity per simulated speaker.
+- A fixture manifest with file paths, start offsets, durations, and overlap.
+- A runner that starts playback, waits for all processing jobs to finish, then stops the translator.
+- Host-side resource sampling for CPU, RAM, GPU/VRAM and Docker containers. Resource samples should be timestamped and saved alongside the JSONL logs.
+- A results summary that correlates playback schedule, translator processing events, and resource samples.
 
-- `POST /join` with JSON `{"guildId":"…","channelId":"…"}`
-- `POST /leave` with JSON `{"guildId":"…"}`
-- Supply `Authorization: Bearer <token>`
-- The token must be at least 32 characters.
-- `/leave` disconnects the test voice session only. It does **not** call the normal `/leave` command or delete any Discord messages.
-- `AUDIO_TEST_SPEAKER_IDS` is a comma-separated allowlist of dedicated speaker bot user IDs. Other bot accounts remain ignored.
-
-Configure with the `AUDIO_TEST_CONTROL_*` and `AUDIO_TEST_SPEAKER_IDS` variables documented in the root `.env.example`. Do not commit real credentials.
-
-### Network safety
-
-Keep the endpoint on loopback when the runner is on the same machine. If the runner is on another computer, expose it only over a trusted private VPN or an equivalently protected network, and restrict the port with the host firewall. The bearer token is a credential; do not expose this plain-HTTP endpoint directly to the public internet. A TLS-protected control route can be added if the deployment needs one.
-
-## Current status
-
-The translator-side control path is in place. The CLI runner, sender-bot orchestration, fixture playback/timing format, result collection, and Docker packaging are not implemented yet. They will be added in small steps and reviewed before running against Discord.
+Offline PCM replay can be added as a separate test mode later; it bypasses Discord transport and Opus decoding, so it complements rather than replaces the end-to-end Discord test.
