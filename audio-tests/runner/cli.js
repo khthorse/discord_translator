@@ -2,7 +2,8 @@
 
 import { randomUUID } from 'node:crypto';
 
-const BASE_URL = 'http://127.0.0.1:8766';
+const CONTROL_PORT = Number(process.env.AUDIO_TEST_CONTROL_PORT || '8766');
+const BASE_URL = `http://127.0.0.1:${CONTROL_PORT}`;
 const TOKEN = process.env.AUDIO_TEST_CONTROL_TOKEN || '';
 
 function usage() {
