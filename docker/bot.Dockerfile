@@ -7,7 +7,7 @@ COPY voice-bot/package.json voice-bot/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --chown=node:node voice-bot/ ./
-COPY --chown=node:node audio-tests/runner/ ./audio-tests/runner/
+COPY --chown=node:node audio-tests/runner/ /audio-tests/runner/
 RUN mkdir -p /data && chown -R node:node /data /app
 
 USER node
