@@ -86,7 +86,7 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export async function playFixtures({ guildId, channelId, fixtures, gapMs = 1000 }) {
+export async function playFixtures({ guildId, channelId, fixtures, gapMs = 1000, expectedSpeakerId }) {
   const token = process.env.AUDIO_TEST_SPEAKER_TOKEN || '';
   if (!token) throw new Error('AUDIO_TEST_SPEAKER_TOKEN is not configured.');
   if (!/^\d{17,20}$/.test(guildId || '') || !/^\d{17,20}$/.test(channelId || '')) {
@@ -121,6 +121,9 @@ export async function playFixtures({ guildId, channelId, fixtures, gapMs = 1000 
     console.log(JSON.stringify({ event: 'speaker_stage', stage }));
     await client.login(token);
     console.log(JSON.stringify({ event: 'speaker_logged_in', speakerId: client.user.id }));
+    if (expectedSpeakerId && client.user.id !== expectedSpeakerId) {
+      throw new Error(`Logged-in speaker bot ID ${client.user.id} does not match manifest discordUserId ${expectedSpeakerId}.`);
+    }
     stage = 'guild_fetch';
     console.log(JSON.stringify({ event: 'speaker_stage', stage, guildId }));
     const guild = await client.guilds.fetch(guildId);
