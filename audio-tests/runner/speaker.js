@@ -89,7 +89,7 @@ function delay(ms) {
 export async function playFixtures({ guildId, channelId, fixtures, gapMs = 1000 }) {
   const token = process.env.AUDIO_TEST_SPEAKER_TOKEN || '';
   if (!token) throw new Error('AUDIO_TEST_SPEAKER_TOKEN is not configured.');
-  if (!/^\\d{17,20}$/.test(guildId || '') || !/^\\d{17,20}$/.test(channelId || '')) {
+  if (!/^\d{17,20}$/.test(guildId || '') || !/^\d{17,20}$/.test(channelId || '')) {
     throw new Error('Valid --guild-id and --channel-id values are required.');
   }
   if (!Array.isArray(fixtures) || fixtures.length === 0) throw new Error('Manifest must contain at least one fixture.');
