@@ -134,9 +134,10 @@ export async function playFixture({ guildId, channelId, fixturePath, startDelayM
     if (startDelayMs) await new Promise(resolve => setTimeout(resolve, startDelayMs));
 
     const startedAt = Date.now();
+    const finished = waitForPlayerToFinish(player);
     const resource = createAudioResource(Readable.from([pcm]), { inputType: StreamType.Raw });
     player.play(resource);
-    await waitForPlayerToFinish(player);
+    await finished;
 
     console.log(JSON.stringify({
       event: 'speaker_playback_finished',
