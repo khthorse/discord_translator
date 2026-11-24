@@ -1824,7 +1824,7 @@ function startAudioTestControl() {
         return send(400, { error: 'speakerLanguages must be an object keyed by Discord user ID' });
       }
       for (const [speakerId, languages] of Object.entries(speakerLanguages)) {
-        if (!/^\\d{17,20}$/.test(speakerId) || !audioTestSpeakerIds.has(speakerId)) {
+        if (!/^\d{17,20}$/.test(speakerId) || !audioTestSpeakerIds.has(speakerId)) {
           return send(403, { error: `Speaker ${speakerId} is not in AUDIO_TEST_SPEAKER_IDS` });
         }
         if (!Array.isArray(languages) || languages.length > 20 || languages.some(code => typeof code !== 'string' || !/^[a-z]{2,3}$/.test(code))) {
