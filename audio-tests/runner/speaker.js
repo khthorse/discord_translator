@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { Readable } from 'node:stream';
 import {
   AudioPlayerStatus,
@@ -81,22 +82,36 @@ function waitForPlayerToFinish(player) {
   });
 }
 
-export async function playFixture({ guildId, channelId, fixturePath, startDelayMs = 0 }) {
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export async function playFixtures({ guildId, channelId, fixtures, gapMs = 1000 }) {
   const token = process.env.AUDIO_TEST_SPEAKER_TOKEN || '';
   if (!token) throw new Error('AUDIO_TEST_SPEAKER_TOKEN is not configured.');
-  if (!/^\d{17,20}$/.test(guildId || '') || !/^\d{17,20}$/.test(channelId || '')) {
+  if (!/^\\d{17,20}$/.test(guildId || '') || !/^\\d{17,20}$/.test(channelId || '')) {
     throw new Error('Valid --guild-id and --channel-id values are required.');
   }
-  if (!Number.isInteger(startDelayMs) || startDelayMs < 0 || startDelayMs > 3_600_000) {
-    throw new Error('--start-delay-ms must be an integer between 0 and 3600000.');
+  if (!Array.isArray(fixtures) || fixtures.length === 0) throw new Error('Manifest must contain at least one fixture.');
+  if (!Number.isInteger(gapMs) || gapMs < 0 || gapMs > 60_000) {
+    throw new Error('Manifest gapMs must be an integer between 0 and 60000.');
   }
 
-  const stat = await fs.stat(fixturePath);
-  if (!stat.isFile() || stat.size > MAX_FIXTURE_BYTES) {
-    throw new Error('Fixture must be a file no larger than 100 MB.');
+  // Validate and load every file before connecting to Discord, so a bad fixture
+  // cannot leave a partially played test sequence.
+  const loadedFixtures = [];
+  for (const [index, fixture] of fixtures.entries()) {
+    if (!fixture || typeof fixture.path !== 'string' || !fixture.path) {
+      throw new Error(`Manifest fixture ${index + 1} is missing its path.`);
+    }
+    const stat = await fs.stat(fixture.path);
+    if (!stat.isFile() || stat.size > MAX_FIXTURE_BYTES) {
+      throw new Error(`Fixture must be a file no larger than 100 MB: ${fixture.path}`);
+    }
+    const pcm = parsePcmWav(await fs.readFile(fixture.path));
+    const durationMs = Math.round(pcm.length / (SAMPLE_RATE * CHANNELS * (BITS_PER_SAMPLE / 8)) * 1000);
+    loadedFixtures.push({ ...fixture, pcm, durationMs });
   }
-  const pcm = parsePcmWav(await fs.readFile(fixturePath));
-  const durationMs = Math.round(pcm.length / (SAMPLE_RATE * CHANNELS * (BITS_PER_SAMPLE / 8)) * 1000);
 
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
   let connection;
@@ -118,35 +133,46 @@ export async function playFixture({ guildId, channelId, fixturePath, startDelayM
 
     const player = createAudioPlayer();
     connection.subscribe(player);
-
-    const scheduledAt = Date.now() + startDelayMs;
     console.log(JSON.stringify({
-      event: 'speaker_playback_scheduled',
+      event: 'speaker_playlist_ready',
       speakerId: client.user.id,
       guildId,
       channelId,
-      fixture: fixturePath,
-      startDelayMs,
-      durationMs,
-      scheduledAt: new Date(scheduledAt).toISOString(),
+      fixtureCount: loadedFixtures.length,
+      gapMs,
     }));
 
-    if (startDelayMs) await new Promise(resolve => setTimeout(resolve, startDelayMs));
+    for (const [index, fixture] of loadedFixtures.entries()) {
+      if (index > 0 && gapMs > 0) await delay(gapMs);
+      const scheduledAt = Date.now();
+      console.log(JSON.stringify({
+        event: 'speaker_playback_scheduled',
+        speakerId: client.user.id,
+        fixtureId: fixture.id || `fixture-${index + 1}`,
+        fixture: fixture.path,
+        expectedLanguage: fixture.expectedLanguage || null,
+        durationMs: fixture.durationMs,
+        scheduledAt: new Date(scheduledAt).toISOString(),
+      }));
 
-    const startedAt = Date.now();
-    const finished = waitForPlayerToFinish(player);
-    const resource = createAudioResource(Readable.from([pcm]), { inputType: StreamType.Raw });
-    player.play(resource);
-    await finished;
+      const startedAt = Date.now();
+      const finished = waitForPlayerToFinish(player);
+      const resource = createAudioResource(Readable.from([fixture.pcm]), { inputType: StreamType.Raw });
+      player.play(resource);
+      await finished;
 
-    console.log(JSON.stringify({
-      event: 'speaker_playback_finished',
-      speakerId: client.user.id,
-      startedAt: new Date(startedAt).toISOString(),
-      finishedAt: new Date().toISOString(),
-      actualDurationMs: Date.now() - startedAt,
-      fixtureDurationMs: durationMs,
-    }));
+      console.log(JSON.stringify({
+        event: 'speaker_playback_finished',
+        speakerId: client.user.id,
+        fixtureId: fixture.id || `fixture-${index + 1}`,
+        fixture: fixture.path,
+        expectedLanguage: fixture.expectedLanguage || null,
+        startedAt: new Date(startedAt).toISOString(),
+        finishedAt: new Date().toISOString(),
+        actualDurationMs: Date.now() - startedAt,
+        fixtureDurationMs: fixture.durationMs,
+      }));
+    }
   } finally {
     connection?.destroy();
     client.destroy();
