@@ -61,9 +61,37 @@ async function loadManifest(manifestPath) {
     throw new Error('Manifest gapMs must be an integer between 0 and 60000.');
   }
 
+  if (!Array.isArray(parsed.speakers) || parsed.speakers.length === 0) {
+    throw new Error('Manifest must define at least one speaker in speakers[].');
+  }
+  const speakers = {};
+  const speakerIds = new Set();
+  const botIds = new Set();
+  for (const [index, speaker] of parsed.speakers.entries()) {
+    if (!speaker || typeof speaker.id !== 'string' || !/^[a-zA-Z0-9_-]{1,40}$/.test(speaker.id)) {
+      throw new Error(`Manifest speaker ${index + 1} needs a valid id.`);
+    }
+    if (!/^\\d{17,20}$/.test(String(speaker.discordUserId || ''))) {
+      throw new Error(`Manifest speaker ${speaker.id} needs a valid discordUserId.`);
+    }
+    if (speakerIds.has(speaker.id) || botIds.has(speaker.discordUserId)) {
+      throw new Error('Manifest speaker IDs and Discord user IDs must be unique.');
+    }
+    const languages = speaker.languages ?? [];
+    if (!Array.isArray(languages) || languages.length > 20 || languages.some(code => typeof code !== 'string' || !/^[a-z]{2,3}$/.test(code))) {
+      throw new Error(`Manifest speaker ${speaker.id} has an invalid languages list.`);
+    }
+    speakerIds.add(speaker.id);
+    botIds.add(speaker.discordUserId);
+    speakers[speaker.id] = { discordUserId: speaker.discordUserId, languages };
+  }
+
   const fixtures = parsed.fixtures.map((fixture, index) => {
     if (!fixture || typeof fixture.path !== 'string' || !fixture.path) {
       throw new Error(`Manifest fixture ${index + 1} is missing its path.`);
+    }
+    if (!speakerIds.has(fixture.speaker)) {
+      throw new Error(`Manifest fixture ${index + 1} references unknown speaker: ${fixture.speaker}`);
     }
     const resolvedFixture = path.resolve(AUDIO_TEST_ROOT, fixture.path);
     if (!resolvedFixture.startsWith(FIXTURE_ROOT + path.sep)) {
@@ -71,7 +99,7 @@ async function loadManifest(manifestPath) {
     }
     return { ...fixture, path: resolvedFixture };
   });
-  return { fixtures, gapMs };
+  return { fixtures, gapMs, speakers };
 }
 
 async function main() {
@@ -94,7 +122,10 @@ async function main() {
     const runId = 'audio-' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID().slice(0, 8);
     let translatorStarted = false;
     try {
-      const started = await request('/join', { guildId, channelId, runId });
+      const speakerLanguages = Object.fromEntries(
+        Object.values(manifest.speakers).map(speaker => [speaker.discordUserId, speaker.languages]),
+      );
+      const started = await request('/join', { guildId, channelId, runId, speakerLanguages });
       translatorStarted = true;
       console.log(JSON.stringify(started, null, 2));
       console.log(`Translator joined. Run ID: ${runId}`);
