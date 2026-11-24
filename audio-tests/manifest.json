@@ -21,5 +21,12 @@
       "path": "fixtures/speaker-1/your-english-listening-is-advanced-if-you-understand-this-aohh-44.wav",
       "expectedLanguage": "en"
     }
+  ],
+  "speakers": [
+    {
+      "id": "speaker-1",
+      "discordUserId": "1574827583667839188",
+      "languages": []
+    }
   ]
 }
