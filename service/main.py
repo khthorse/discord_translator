@@ -14,7 +14,11 @@ import time
 import wave
 from pathlib import Path
 
-from language_detection import best_allowed_language, requested_language_hint
+from language_detection import (
+    best_allowed_language,
+    requested_language_hint,
+    resolve_allowed_languages,
+)
 
 # ---------------------------------------------------------------- CUDA setup ---
 
@@ -153,6 +157,7 @@ def process(
     candidates: list[str],
     targets: list[str],
     expected_languages: list[str],
+    user_preferences_set: bool,
     language_hint: str,
     translate_from: str,
     translate_enabled: bool,
@@ -174,16 +179,41 @@ def process(
     queue_wait = time.perf_counter() - queue_started
 
     try:
-        stt_started = time.perf_counter()
-        # Let transcription perform its own language detection. Calling
-        # detect_language() separately first would run an additional encoder
-        # pass over every audio chunk.
-        allowed_languages = expected_languages or candidates
+        allowed_languages = resolve_allowed_languages(
+            candidates,
+            expected_languages,
+            user_preferences_set,
+        )
+        if candidates and user_preferences_set and not allowed_languages:
+            raise HTTPException(
+                status_code=422,
+                detail="Your language preferences do not overlap with this server's allowed languages.",
+            )
+
+        detection_duration = 0.0
         requested_language = requested_language_hint(
             allowed_languages,
             language_hint,
         )
 
+        # A single allowed language (or a valid per-turn hint) skips detection.
+        # For multiple allowed languages, detect once, then select only from the
+        # approved set before running transcription exactly once.
+        if requested_language is None and allowed_languages:
+            detection_started = time.perf_counter()
+            _, _, all_language_probs = model.detect_language(audio)
+            requested_language = best_allowed_language(
+                allowed_languages,
+                dict(all_language_probs or []),
+            )
+            detection_duration = time.perf_counter() - detection_started
+            if requested_language is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Could not select a language from the configured allowlist.",
+                )
+
+        stt_started = time.perf_counter()
         segments, info = model.transcribe(
             audio,
             language=requested_language,
@@ -199,37 +229,7 @@ def process(
             if s.no_speech_prob < 0.7
         ).strip()
 
-        lang = info.language
-
-        # A member's expected languages take precedence over the server-wide
-        # candidate list. If Whisper's automatic detection falls outside that
-        # set, use its language probabilities to choose the best allowed
-        # language and perform one corrected transcription (not one per option).
-        correction_duration = 0.0
-        if allowed_languages and lang not in allowed_languages:
-            correction_started = time.perf_counter()
-            probabilities = dict(info.all_language_probs or [])
-            corrected_language = best_allowed_language(
-                allowed_languages,
-                probabilities,
-            )
-            if corrected_language != lang:
-                corrected_segments, corrected_info = model.transcribe(
-                    audio,
-                    language=corrected_language,
-                    beam_size=WHISPER_BEAM_SIZE,
-                    vad_filter=True,
-                    condition_on_previous_text=False,
-                )
-                corrected_text = " ".join(
-                    segment.text.strip()
-                    for segment in corrected_segments
-                    if segment.no_speech_prob < 0.7
-                ).strip()
-                text = corrected_text
-                lang = corrected_language
-            correction_duration = time.perf_counter() - correction_started
-
+        lang = requested_language or info.language
         stt_duration = time.perf_counter() - stt_started
     finally:
         transcription_slots.release()
@@ -277,9 +277,9 @@ def process(
 
     print(
         f"[{speaker}] ({lang}) {text!r} -> {translations or None}  "
-        f"[queue {queue_wait:.2f}s, stt {stt_duration - correction_duration:.2f}s, "
-        f"correction {correction_duration:.2f}s, "
-        f"translate {t2 - t1:.2f}s, total {t2 - t0:.2f}s]"
+        f"[queue {queue_wait:.2f}s, detect {detection_duration:.2f}s, "
+        f"stt {stt_duration:.2f}s, translate {t2 - t1:.2f}s, "
+        f"total {t2 - t0:.2f}s]"
     )
 
     return {
@@ -296,6 +296,7 @@ async def process_endpoint(
     candidates: str = "",
     targets: str = "",
     expected_languages: str = "",
+    user_preferences_set: bool = False,
     language_hint: str = "",
     translate_from: str = "",
     translate: bool = True,
@@ -315,6 +316,7 @@ async def process_endpoint(
         split_codes(candidates),
         split_codes(targets),
         split_codes(expected_languages),
+        user_preferences_set,
         language_hint.strip().lower(),
         translate_from.strip().lower(),
         translate,
