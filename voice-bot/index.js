@@ -1742,7 +1742,7 @@ function startAudioTestControl() {
       return send(401, { error: 'Unauthorized' });
     }
 
-    if (req.method !== 'POST' || !['/join', '/leave'].includes(req.url)) {
+    if (req.method !== 'POST' || !['/join', '/leave', '/status'].includes(req.url)) {
       return send(404, { error: 'Not found' });
     }
 
@@ -1757,6 +1757,19 @@ function startAudioTestControl() {
       if (!client.isReady()) return send(503, { error: 'Discord client is not ready' });
       const guildId = String(body.guildId || '');
       if (!/^\d{17,20}$/.test(guildId)) return send(400, { error: 'A valid guildId is required' });
+
+      if (req.url === '/status') {
+        const session = sessions.get(guildId);
+        return send(200, session ? {
+          ok: true,
+          joined: true,
+          runId: session.testRunId,
+          activeSpeakers: session.active.size,
+          pendingJobs: session.pendingJobs,
+          runningJobs: session.runningJobs,
+          waitingJobs: session.workQueue.length,
+        } : { ok: true, joined: false });
+      }
 
       if (req.url === '/leave') {
         const session = sessions.get(guildId);
