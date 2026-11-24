@@ -1726,6 +1726,10 @@ async function handleUtterance(session, userId, pcm, turn, previousOutput, relea
 
 function startAudioTestControl() {
   if (AUDIO_TEST_CONTROL_ENABLED !== 'true') return;
+  const controlPort = Number(AUDIO_TEST_CONTROL_PORT);
+  if (!Number.isInteger(controlPort) || controlPort < 1024 || controlPort > 65535) {
+    throw new Error('AUDIO_TEST_CONTROL_PORT must be an integer between 1024 and 65535.');
+  }
   if (!AUDIO_TEST_CONTROL_TOKEN || AUDIO_TEST_CONTROL_TOKEN.length < 32) {
     throw new Error('AUDIO_TEST_CONTROL_TOKEN must be set to a value of at least 32 characters when audio test control is enabled.');
   }
@@ -1819,8 +1823,8 @@ function startAudioTestControl() {
     }
   });
 
-  server.listen(Number(AUDIO_TEST_CONTROL_PORT), '127.0.0.1', () => {
-    logEvent('audio_test_control_ready', { host: '127.0.0.1', port: Number(AUDIO_TEST_CONTROL_PORT) });
+  server.listen(controlPort, '127.0.0.1', () => {
+    logEvent('audio_test_control_ready', { host: '127.0.0.1', port: controlPort });
   });
   server.on('error', error => console.error('[AUDIO TEST CONTROL] Server error:', error));
   return server;
