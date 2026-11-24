@@ -190,28 +190,14 @@ def process(
                 detail="Your language preferences do not overlap with this server's allowed languages.",
             )
 
-        detection_duration = 0.0
+        # A single allowed language (or a valid per-turn hint) skips detection.
+        # For multiple languages, let faster-whisper detect during transcription;
+        # its encoder output is reused. Only if its detected language is outside
+        # the allowlist do we select the best allowed probability and retry.
         requested_language = requested_language_hint(
             allowed_languages,
             language_hint,
         )
-
-        # A single allowed language (or a valid per-turn hint) skips detection.
-        # For multiple allowed languages, detect once, then select only from the
-        # approved set before running transcription exactly once.
-        if requested_language is None and allowed_languages:
-            detection_started = time.perf_counter()
-            _, _, all_language_probs = model.detect_language(audio)
-            requested_language = best_allowed_language(
-                allowed_languages,
-                dict(all_language_probs or []),
-            )
-            detection_duration = time.perf_counter() - detection_started
-            if requested_language is None:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Could not select a language from the configured allowlist.",
-                )
 
         stt_started = time.perf_counter()
         segments, info = model.transcribe(
@@ -230,6 +216,29 @@ def process(
         ).strip()
 
         lang = requested_language or info.language
+        correction_duration = 0.0
+        if allowed_languages and lang not in allowed_languages:
+            correction_started = time.perf_counter()
+            corrected_language = best_allowed_language(
+                allowed_languages,
+                dict(info.all_language_probs or []),
+            )
+            if corrected_language:
+                corrected_segments, _ = model.transcribe(
+                    audio,
+                    language=corrected_language,
+                    beam_size=WHISPER_BEAM_SIZE,
+                    vad_filter=True,
+                    condition_on_previous_text=False,
+                )
+                text = " ".join(
+                    segment.text.strip()
+                    for segment in corrected_segments
+                    if segment.no_speech_prob < 0.7
+                ).strip()
+                lang = corrected_language
+            correction_duration = time.perf_counter() - correction_started
+
         stt_duration = time.perf_counter() - stt_started
     finally:
         transcription_slots.release()
@@ -277,9 +286,9 @@ def process(
 
     print(
         f"[{speaker}] ({lang}) {text!r} -> {translations or None}  "
-        f"[queue {queue_wait:.2f}s, detect {detection_duration:.2f}s, "
-        f"stt {stt_duration:.2f}s, translate {t2 - t1:.2f}s, "
-        f"total {t2 - t0:.2f}s]"
+        f"[queue {queue_wait:.2f}s, stt {stt_duration - correction_duration:.2f}s, "
+        f"allowlist_retry {correction_duration:.2f}s, "
+        f"translate {t2 - t1:.2f}s, total {t2 - t0:.2f}s]"
     )
 
     return {
