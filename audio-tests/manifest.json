@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "description": "Initial sequential language-detection test using the three speaker-1 recordings",
+  "gapMs": 1000,
+  "fixtures": [
+    {
+      "id": "speaker-1-english-opening",
+      "speaker": "speaker-1",
+      "path": "fixtures/speaker-1/Your_English_Listening_is_Advanced_if_You_Understand_This_clip_0m00s-0m20s.wav",
+      "expectedLanguage": "en"
+    },
+    {
+      "id": "speaker-1-english-middle",
+      "speaker": "speaker-1",
+      "path": "fixtures/speaker-1/Your_English_Listening_is_Advanced_if_You_Understand_This_clip_10m00s-10m30s.wav",
+      "expectedLanguage": "en"
+    },
+    {
+      "id": "speaker-1-english-extra",
+      "speaker": "speaker-1",
+      "path": "fixtures/speaker-1/your-english-listening-is-advanced-if-you-understand-this-aohh-44.wav",
+      "expectedLanguage": "en"
+    }
+  ]
+}
