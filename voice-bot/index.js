@@ -45,7 +45,6 @@ const {
   RECORD_WAV = 'false',
   MESSAGE_DELETE_SECONDS = '300',
   AUDIO_TEST_CONTROL_ENABLED = 'false',
-  AUDIO_TEST_CONTROL_HOST = '127.0.0.1',
   AUDIO_TEST_CONTROL_PORT = '8766',
   AUDIO_TEST_CONTROL_TOKEN = '',
   AUDIO_TEST_SPEAKER_IDS = '',
@@ -75,6 +74,24 @@ const audioTestSpeakerIds = new Set(AUDIO_TEST_SPEAKER_IDS.split(',').map(id => 
 
 const dataDir = process.env.DATA_DIR || fileURLToPath(new URL('.', import.meta.url));
 fs.mkdirSync(dataDir, { recursive: true });
+const audioTestLogDir = path.join(dataDir, 'audio-test-logs');
+
+function logEvent(event, fields = {}) {
+  const line = JSON.stringify({
+    timestamp: new Date().toISOString(),
+    event,
+    ...fields,
+  });
+  console.log(line);
+  if (fields.runId) {
+    try {
+      fs.mkdirSync(audioTestLogDir, { recursive: true });
+      fs.appendFileSync(path.join(audioTestLogDir, `${fields.runId}.jsonl`), `${line}\n`);
+    } catch (error) {
+      console.error('Could not write audio test event log:', error.message);
+    }
+  }
+}
 
 const languageChannelsFile = path.join(dataDir, 'language-channels.json');
 const guildLanguagesFile = path.join(dataDir, 'guild-languages.json');
@@ -729,7 +746,7 @@ async function requireManageServer(interaction) {
 
 // ----------------------------------------------------------- join / leave ---
 
-async function createVoiceSession(guild, voiceChannel) {
+async function createVoiceSession(guild, voiceChannel, { testRunId = null } = {}) {
   // This project runs tests exclusively; a new test join replaces the current
   // voice connection for this guild. It deliberately does not run /leave cleanup.
   sessions.get(guild.id)?.connection.destroy();
@@ -752,6 +769,7 @@ async function createVoiceSession(guild, voiceChannel) {
   const session = {
     connection,
     guild,
+    testRunId,
     active: new Set(),
     speakerQueues: new Map(),
     workQueue: [],
@@ -782,6 +800,12 @@ async function createVoiceSession(guild, voiceChannel) {
   });
 
   startListening(session);
+  logEvent('voice_session_started', {
+    runId: testRunId,
+    guildId: guild.id,
+    channelId: voiceChannel.id,
+    channelName: voiceChannel.name,
+  });
   return session;
 }
 
@@ -1275,6 +1299,14 @@ function startListening(session) {
       session.lastStartedSpeakerId = userId;
 
       await captureUtterance(receiver, userId, (pcm) => {
+        const durationMs = pcm.length / BYTES_PER_MS;
+        logEvent('audio_segment_captured', {
+          runId: session.testRunId,
+          guildId: session.guild.id,
+          speakerId: userId,
+          durationMs: Math.round(durationMs),
+          bytes: pcm.length,
+        });
         enqueueUtterance(session, userId, pcm, capture.turn);
       });
     } catch (err) {
@@ -1337,11 +1369,14 @@ function runWithSessionLimit(session, job) {
     drainSessionQueue(session);
 
     if (shouldLogQueue) {
-      console.log(
-        `[QUEUE] ${session.workQueue.length} waiting; ` +
-        `${session.runningJobs}/${session.maxConcurrentJobs} active; ` +
-        `${session.pendingJobs} total.`,
-      );
+      logEvent('utterance_queue_state', {
+        runId: session.testRunId,
+        guildId: session.guild.id,
+        waiting: session.workQueue.length,
+        active: session.runningJobs,
+        limit: session.maxConcurrentJobs,
+        pending: session.pendingJobs,
+      });
     }
   });
 }
@@ -1356,7 +1391,11 @@ function drainSessionQueue(session) {
     session.runningJobs++;
 
     if (queueWaitMs >= 250) {
-      console.log(`[QUEUE] Waited ${queueWaitMs}ms before processing an utterance.`);
+      logEvent('utterance_queue_wait', {
+        runId: session.testRunId,
+        guildId: session.guild.id,
+        queueWaitMs,
+      });
     }
 
     Promise.resolve()
@@ -1483,8 +1522,15 @@ function captureUtterance(receiver, userId, onSegment) {
 // ------------------------------------------------------------- the work ----
 
 async function handleUtterance(session, userId, pcm, turn, previousOutput, releaseOutput) {
+  const utteranceStartedAt = Date.now();
   try {
     const durationMs = pcm.length / BYTES_PER_MS;
+    logEvent('utterance_processing_started', {
+      runId: session.testRunId,
+      guildId: session.guild.id,
+      speakerId: userId,
+      durationMs: Math.round(durationMs),
+    });
     if (durationMs < minMs) return;
 
     const member = await session.guild.members.fetch(userId).catch(() => null);
@@ -1511,6 +1557,7 @@ async function handleUtterance(session, userId, pcm, turn, previousOutput, relea
         translate: settings.targetLanguages.length > 0 ? 'true' : 'false',
       });
 
+      const serviceStartedAt = Date.now();
       const res = await fetch(`${SERVICE_URL}/process?${params}`, {
         method: 'POST',
         headers: { 'Content-Type': 'audio/wav' },
@@ -1520,17 +1567,40 @@ async function handleUtterance(session, userId, pcm, turn, previousOutput, relea
 
       if (!res.ok) throw new Error(`service answered HTTP ${res.status}`);
       result = await res.json();
+      logEvent('processing_service_completed', {
+        runId: session.testRunId,
+        guildId: session.guild.id,
+        speakerId: userId,
+        durationMs: Date.now() - serviceStartedAt,
+        sourceLanguage: result.language || null,
+        translationCount: Object.keys(result.translations || {}).length,
+        hasOriginal: Boolean(result.original),
+      });
       // All segments emitted from the same captured speech turn share this
       // language decision. A fresh turn object resets the hint automatically.
       if (!turn.detectedLanguage && result.language) {
         turn.detectedLanguage = result.language;
       }
     } catch (err) {
+      logEvent('processing_service_failed', {
+        runId: session.testRunId,
+        guildId: session.guild.id,
+        speakerId: userId,
+        error: String(err.message || 'unknown error').slice(0, 300),
+      });
       console.error('Could not reach the Python service:', err.message);
       return;
     }
 
-    if (!result.original) return;
+    if (!result.original) {
+      logEvent('utterance_empty_result', {
+        runId: session.testRunId,
+        guildId: session.guild.id,
+        speakerId: userId,
+        totalDurationMs: Date.now() - utteranceStartedAt,
+      });
+      return;
+    }
 
     // Only publication waits for earlier captured chunks. Speech recognition
     // and translation requests still run concurrently.
@@ -1642,6 +1712,12 @@ async function handleUtterance(session, userId, pcm, turn, previousOutput, relea
       }
     }
   } finally {
+    logEvent('utterance_processing_finished', {
+      runId: session.testRunId,
+      guildId: session.guild.id,
+      speakerId: userId,
+      totalDurationMs: Date.now() - utteranceStartedAt,
+    });
     // Failed or empty requests must not block later chunks in the output queue.
     releaseOutput();
   }
@@ -1650,6 +1726,10 @@ async function handleUtterance(session, userId, pcm, turn, previousOutput, relea
 
 function startAudioTestControl() {
   if (AUDIO_TEST_CONTROL_ENABLED !== 'true') return;
+  const controlPort = Number(AUDIO_TEST_CONTROL_PORT);
+  if (!Number.isInteger(controlPort) || controlPort < 1024 || controlPort > 65535) {
+    throw new Error('AUDIO_TEST_CONTROL_PORT must be an integer between 1024 and 65535.');
+  }
   if (!AUDIO_TEST_CONTROL_TOKEN || AUDIO_TEST_CONTROL_TOKEN.length < 32) {
     throw new Error('AUDIO_TEST_CONTROL_TOKEN must be set to a value of at least 32 characters when audio test control is enabled.');
   }
@@ -1666,7 +1746,7 @@ function startAudioTestControl() {
       return send(401, { error: 'Unauthorized' });
     }
 
-    if (req.method !== 'POST' || !['/join', '/leave'].includes(req.url)) {
+    if (req.method !== 'POST' || !['/join', '/leave', '/status'].includes(req.url)) {
       return send(404, { error: 'Not found' });
     }
 
@@ -1682,12 +1762,39 @@ function startAudioTestControl() {
       const guildId = String(body.guildId || '');
       if (!/^\d{17,20}$/.test(guildId)) return send(400, { error: 'A valid guildId is required' });
 
+      if (req.url === '/status') {
+        const session = sessions.get(guildId);
+        return send(200, session ? {
+          ok: true,
+          joined: true,
+          runId: session.testRunId,
+          activeSpeakers: session.active.size,
+          queuedSpeakers: session.speakerQueues.size,
+          pendingJobs: session.pendingJobs,
+          runningJobs: session.runningJobs,
+          waitingJobs: session.workQueue.length,
+        } : { ok: true, joined: false });
+      }
+
       if (req.url === '/leave') {
         const session = sessions.get(guildId);
-        if (!session) return send(200, { ok: true, joined: false });
+        if (!session) return send(200, { ok: true, joined: false, cleanup: null });
+        const runId = session.testRunId;
         session.connection.destroy();
         sessions.delete(guildId);
-        return send(200, { ok: true, joined: false });
+        const cleanup = await clearBotMessages(session.guild);
+        logEvent('audio_test_session_stopped', {
+          runId,
+          guildId,
+          deletedMessages: cleanup.deletedCount,
+          cleanupErrors: cleanup.errors.length,
+        });
+        return send(200, { ok: true, joined: false, cleanup: {
+          channelsChecked: cleanup.channelsChecked,
+          messagesScanned: cleanup.messagesScanned,
+          deletedCount: cleanup.deletedCount,
+          errors: cleanup.errors.length,
+        } });
       }
 
       const channelId = String(body.channelId || '');
@@ -1703,16 +1810,21 @@ function startAudioTestControl() {
         return send(403, { error: 'The translator bot does not have Connect permission in that channel' });
       }
 
-      await createVoiceSession(guild, channel);
-      return send(200, { ok: true, joined: true, guildId, channelId, channelName: channel.name });
+      const runId = String(body.runId || '');
+      if (!/^[a-zA-Z0-9_-]{1,80}$/.test(runId)) {
+        return send(400, { error: 'A valid runId is required' });
+      }
+      await createVoiceSession(guild, channel, { testRunId: runId });
+      logEvent('audio_test_session_started', { runId, guildId, channelId, channelName: channel.name });
+      return send(200, { ok: true, joined: true, runId, guildId, channelId, channelName: channel.name });
     } catch (error) {
       console.error('[AUDIO TEST CONTROL]', error);
       return send(500, { error: String(error.message || 'Internal error').slice(0, 300) });
     }
   });
 
-  server.listen(Number(AUDIO_TEST_CONTROL_PORT), AUDIO_TEST_CONTROL_HOST, () => {
-    console.log(`Audio test control listening on ${AUDIO_TEST_CONTROL_HOST}:${AUDIO_TEST_CONTROL_PORT}`);
+  server.listen(controlPort, '127.0.0.1', () => {
+    logEvent('audio_test_control_ready', { host: '127.0.0.1', port: controlPort });
   });
   server.on('error', error => console.error('[AUDIO TEST CONTROL] Server error:', error));
   return server;
