@@ -1661,7 +1661,7 @@ function startAudioTestControl() {
       res.end(JSON.stringify(payload));
     };
 
-    const supplied = Buffer.from(String(req.headers.authorization || '').replace(/^Bearer\\s+/i, ''));
+    const supplied = Buffer.from(String(req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
     if (supplied.length !== expectedToken.length || !timingSafeEqual(supplied, expectedToken)) {
       return send(401, { error: 'Unauthorized' });
     }
@@ -1680,7 +1680,7 @@ function startAudioTestControl() {
 
       if (!client.isReady()) return send(503, { error: 'Discord client is not ready' });
       const guildId = String(body.guildId || '');
-      if (!/^\\d{17,20}$/.test(guildId)) return send(400, { error: 'A valid guildId is required' });
+      if (!/^\d{17,20}$/.test(guildId)) return send(400, { error: 'A valid guildId is required' });
 
       if (req.url === '/leave') {
         const session = sessions.get(guildId);
@@ -1691,7 +1691,7 @@ function startAudioTestControl() {
       }
 
       const channelId = String(body.channelId || '');
-      if (!/^\\d{17,20}$/.test(channelId)) return send(400, { error: 'A valid channelId is required' });
+      if (!/^\d{17,20}$/.test(channelId)) return send(400, { error: 'A valid channelId is required' });
       const guild = await client.guilds.fetch(guildId);
       const channel = await guild.channels.fetch(channelId);
       if (!channel || ![ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type)) {
