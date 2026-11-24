@@ -72,6 +72,8 @@ const messageDeleteSeconds = Math.max(0, Number(MESSAGE_DELETE_SECONDS) || 0);
 const maxConcurrentUtterances = Math.max(1, Number(MAX_CONCURRENT_UTTERANCES) || 3);
 const audioTestSpeakerIds = new Set(AUDIO_TEST_SPEAKER_IDS.split(',').map(id => id.trim()).filter(Boolean));
 
+const dataDir = process.env.DATA_DIR || fileURLToPath(new URL('.', import.meta.url));
+fs.mkdirSync(dataDir, { recursive: true });
 const audioTestLogDir = path.join(dataDir, 'audio-test-logs');
 
 function logEvent(event, fields = {}) {
@@ -84,15 +86,12 @@ function logEvent(event, fields = {}) {
   if (fields.runId) {
     try {
       fs.mkdirSync(audioTestLogDir, { recursive: true });
-      fs.appendFileSync(path.join(audioTestLogDir, `${fields.runId}.jsonl`), `${line}\\n`);
+      fs.appendFileSync(path.join(audioTestLogDir, `${fields.runId}.jsonl`), `${line}\n`);
     } catch (error) {
       console.error('Could not write audio test event log:', error.message);
     }
   }
 }
-
-const dataDir = process.env.DATA_DIR || fileURLToPath(new URL('.', import.meta.url));
-fs.mkdirSync(dataDir, { recursive: true });
 
 const languageChannelsFile = path.join(dataDir, 'language-channels.json');
 const guildLanguagesFile = path.join(dataDir, 'guild-languages.json');
