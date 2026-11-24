@@ -1550,8 +1550,8 @@ async function handleUtterance(session, userId, pcm, turn, previousOutput, relea
       const params = new URLSearchParams({
         speaker: userId,
         candidates: settings.inputLanguages.join(','),
-        expected_languages: getUserLanguagePreferences(session.guild.id, userId)
-          .filter(language => settings.inputLanguages.includes(language)).join(','),
+        expected_languages: getUserLanguagePreferences(session.guild.id, userId).join(','),
+        user_preferences_set: getUserLanguagePreferences(session.guild.id, userId).length > 0 ? 'true' : 'false',
         language_hint: turn.detectedLanguage || '',
         targets: settings.targetLanguages.join(','),
         translate: settings.targetLanguages.length > 0 ? 'true' : 'false',
