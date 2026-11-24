@@ -74,7 +74,7 @@ async function main() {
     let status = await request('/status', { guildId });
     while (
       status.joined &&
-      (status.activeSpeakers > 0 || status.pendingJobs > 0 || status.runningJobs > 0 || status.waitingJobs > 0) &&
+      (status.activeSpeakers > 0 || status.queuedSpeakers > 0 || status.pendingJobs > 0 || status.runningJobs > 0 || status.waitingJobs > 0) &&
       Date.now() < deadline
     ) {
       await new Promise(resolve => setTimeout(resolve, 500));
