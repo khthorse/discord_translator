@@ -1,9 +1,40 @@
 import unittest
 
-from language_detection import best_allowed_language, requested_language_hint
+from language_detection import (
+    best_allowed_language,
+    requested_language_hint,
+    resolve_allowed_languages,
+)
 
 
 class LanguageSelectionTests(unittest.TestCase):
+    def test_server_allowlist_applies_without_user_preference(self):
+        self.assertEqual(
+            resolve_allowed_languages(["en", "es"], [], False),
+            ["en", "es"],
+        )
+
+    def test_user_preferences_narrow_server_allowlist(self):
+        self.assertEqual(
+            resolve_allowed_languages(["en", "es"], ["es", "fr"], True),
+            ["es"],
+        )
+
+    def test_user_preferences_cannot_expand_server_allowlist(self):
+        self.assertEqual(
+            resolve_allowed_languages(["en", "es"], ["fr"], True),
+            [],
+        )
+
+    def test_user_preferences_apply_when_server_is_unrestricted(self):
+        self.assertEqual(
+            resolve_allowed_languages([], ["fr"], True),
+            ["fr"],
+        )
+
+    def test_unrestricted_server_and_no_user_preference_stays_unrestricted(self):
+        self.assertEqual(resolve_allowed_languages([], [], False), [])
+
     def test_reuses_valid_turn_hint(self):
         self.assertEqual(requested_language_hint(["en", "es"], "es"), "es")
 
@@ -18,14 +49,20 @@ class LanguageSelectionTests(unittest.TestCase):
 
     def test_selects_highest_probability_allowed_language(self):
         self.assertEqual(
-            best_allowed_language(["en", "es", "no"], {"en": 0.1, "es": 0.7, "no": 0.2}),
+            best_allowed_language(
+                ["en", "es", "no"],
+                {"en": 0.1, "es": 0.7, "no": 0.2, "fr": 0.99},
+            ),
             "es",
         )
 
     def test_probability_tie_preserves_configured_order(self):
-        self.assertEqual(best_allowed_language(["no", "en"], {"no": 0.4, "en": 0.4}), "no")
+        self.assertEqual(
+            best_allowed_language(["no", "en"], {"no": 0.4, "en": 0.4}),
+            "no",
+        )
 
-    def test_empty_allowlist_has_no_correction(self):
+    def test_empty_allowlist_has_no_selection(self):
         self.assertIsNone(best_allowed_language([], {"en": 1.0}))
 
 
