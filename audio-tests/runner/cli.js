@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { randomUUID } from 'node:crypto';
+import { playFixture } from './speaker.js';
 
 const CONTROL_PORT = Number(process.env.AUDIO_TEST_CONTROL_PORT || '8766');
 const BASE_URL = `http://127.0.0.1:${CONTROL_PORT}`;
@@ -11,6 +12,7 @@ function usage() {
 
 Usage:
   npm run audio-test -- start --guild-id ID --channel-id ID [--run-id ID]
+  npm run audio-test -- run --guild-id ID --channel-id ID --fixture PATH [--start-delay-ms N]
   npm run audio-test -- stop --guild-id ID
 
 The CLI must run inside the dedicated translator container.
@@ -53,6 +55,41 @@ async function main() {
   const guildId = option(args, '--guild-id');
   if (!/^\d{17,20}$/.test(guildId || '')) {
     throw new Error('--guild-id must be a valid Discord server ID.');
+  }
+
+  if (action === 'run') {
+    const channelId = option(args, '--channel-id');
+    const fixturePath = option(args, '--fixture');
+    if (!/^\\d{17,20}$/.test(channelId || '')) throw new Error('--channel-id must be a valid Discord voice channel ID.');
+    if (!fixturePath) throw new Error('--fixture PATH is required.');
+    const delayRaw = option(args, '--start-delay-ms') || '0';
+    if (!/^\\d+$/.test(delayRaw)) throw new Error('--start-delay-ms must be a non-negative integer.');
+    const startDelayMs = Number(delayRaw);
+    const runId = 'audio-' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID().slice(0, 8);
+    let translatorStarted = false;
+    try {
+      const started = await request('/join', { guildId, channelId, runId });
+      translatorStarted = true;
+      console.log(JSON.stringify(started, null, 2));
+      console.log('Translator joined. Run ID: ' + runId);
+      await playFixture({ guildId, channelId, fixturePath, startDelayMs });
+      console.log('Speaker playback finished; waiting for translator processing to drain.');
+      const deadline = Date.now() + 120_000;
+      let status = await request('/status', { guildId });
+      while (status.joined && (status.activeSpeakers > 0 || status.queuedSpeakers > 0 || status.pendingJobs > 0 || status.runningJobs > 0 || status.waitingJobs > 0) && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        status = await request('/status', { guildId });
+      }
+      if (status.joined && (status.activeSpeakers > 0 || status.queuedSpeakers > 0 || status.pendingJobs > 0 || status.runningJobs > 0 || status.waitingJobs > 0)) throw new Error('Timed out waiting for translator processing to drain.');
+      console.log('Translator processing queue is drained.');
+    } finally {
+      if (translatorStarted) {
+        const stopped = await request('/leave', { guildId });
+        console.log(JSON.stringify(stopped, null, 2));
+        console.log('Translator test session stopped.');
+      }
+    }
+    return;
   }
 
   if (action === 'start') {
