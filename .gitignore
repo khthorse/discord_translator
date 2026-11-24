@@ -328,3 +328,7 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.toptal.com/developers/gitignore/api/linux,windows,python,java,visualstudiocode,macos,venv
+
+# Local audio-test fixtures and generated results
+audio-tests/fixtures/
+audio-tests/results/
