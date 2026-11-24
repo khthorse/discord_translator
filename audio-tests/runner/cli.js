@@ -60,10 +60,10 @@ async function main() {
   if (action === 'run') {
     const channelId = option(args, '--channel-id');
     const fixturePath = option(args, '--fixture');
-    if (!/^\\d{17,20}$/.test(channelId || '')) throw new Error('--channel-id must be a valid Discord voice channel ID.');
+    if (!/^\d{17,20}$/.test(channelId || '')) throw new Error('--channel-id must be a valid Discord voice channel ID.');
     if (!fixturePath) throw new Error('--fixture PATH is required.');
     const delayRaw = option(args, '--start-delay-ms') || '0';
-    if (!/^\\d+$/.test(delayRaw)) throw new Error('--start-delay-ms must be a non-negative integer.');
+    if (!/^\d+$/.test(delayRaw)) throw new Error('--start-delay-ms must be a non-negative integer.');
     const startDelayMs = Number(delayRaw);
     const runId = 'audio-' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID().slice(0, 8);
     let translatorStarted = false;
