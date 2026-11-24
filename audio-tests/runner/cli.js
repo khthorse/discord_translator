@@ -1,18 +1,22 @@
 #!/usr/bin/env node
 
 import { randomUUID } from 'node:crypto';
-import { playFixture } from './speaker.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { playFixtures } from './speaker.js';
 
 const CONTROL_PORT = Number(process.env.AUDIO_TEST_CONTROL_PORT || '8766');
 const BASE_URL = `http://127.0.0.1:${CONTROL_PORT}`;
 const TOKEN = process.env.AUDIO_TEST_CONTROL_TOKEN || '';
+const AUDIO_TEST_ROOT = '/audio-tests';
+const FIXTURE_ROOT = path.resolve(AUDIO_TEST_ROOT, 'fixtures');
 
 function usage() {
   console.log(`Audio test session control
 
 Usage:
   npm run audio-test -- start --guild-id ID --channel-id ID [--run-id ID]
-  npm run audio-test -- run --guild-id ID --channel-id ID --fixture PATH [--start-delay-ms N]
+  npm run audio-test -- run --guild-id ID --channel-id ID --manifest /audio-tests/manifest.json
   npm run audio-test -- stop --guild-id ID
 
 The CLI must run inside the dedicated translator container.
@@ -24,12 +28,12 @@ function option(args, name) {
   return index >= 0 ? args[index + 1] : null;
 }
 
-async function request(path, body) {
+async function request(endpoint, body) {
   if (TOKEN.length < 32) {
     throw new Error('AUDIO_TEST_CONTROL_TOKEN must be configured with at least 32 characters.');
   }
 
-  const response = await fetch(`${BASE_URL}${path}`, {
+  const response = await fetch(`${BASE_URL}${endpoint}`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${TOKEN}`,
@@ -45,6 +49,31 @@ async function request(path, body) {
   return result;
 }
 
+async function loadManifest(manifestPath) {
+  if (!manifestPath) throw new Error('--manifest PATH is required.');
+  const resolvedManifest = path.resolve(manifestPath);
+  const parsed = JSON.parse(await fs.readFile(resolvedManifest, 'utf8'));
+  if (parsed.version !== 1 || !Array.isArray(parsed.fixtures) || parsed.fixtures.length === 0) {
+    throw new Error('Manifest must have version 1 and a non-empty fixtures array.');
+  }
+  const gapMs = parsed.gapMs ?? 1000;
+  if (!Number.isInteger(gapMs) || gapMs < 0 || gapMs > 60_000) {
+    throw new Error('Manifest gapMs must be an integer between 0 and 60000.');
+  }
+
+  const fixtures = parsed.fixtures.map((fixture, index) => {
+    if (!fixture || typeof fixture.path !== 'string' || !fixture.path) {
+      throw new Error(`Manifest fixture ${index + 1} is missing its path.`);
+    }
+    const resolvedFixture = path.resolve(AUDIO_TEST_ROOT, fixture.path);
+    if (!resolvedFixture.startsWith(FIXTURE_ROOT + path.sep)) {
+      throw new Error(`Manifest fixture ${index + 1} must be inside /audio-tests/fixtures.`);
+    }
+    return { ...fixture, path: resolvedFixture };
+  });
+  return { fixtures, gapMs };
+}
+
 async function main() {
   const [action, ...args] = process.argv.slice(2);
   if (!action || action === '--help' || action === 'help') {
@@ -53,27 +82,25 @@ async function main() {
   }
 
   const guildId = option(args, '--guild-id');
-  if (!/^\d{17,20}$/.test(guildId || '')) {
+  if (!/^\\d{17,20}$/.test(guildId || '')) {
     throw new Error('--guild-id must be a valid Discord server ID.');
   }
 
   if (action === 'run') {
     const channelId = option(args, '--channel-id');
-    const fixturePath = option(args, '--fixture');
-    if (!/^\d{17,20}$/.test(channelId || '')) throw new Error('--channel-id must be a valid Discord voice channel ID.');
-    if (!fixturePath) throw new Error('--fixture PATH is required.');
-    const delayRaw = option(args, '--start-delay-ms') || '0';
-    if (!/^\d+$/.test(delayRaw)) throw new Error('--start-delay-ms must be a non-negative integer.');
-    const startDelayMs = Number(delayRaw);
+    if (!/^\\d{17,20}$/.test(channelId || '')) throw new Error('--channel-id must be a valid Discord voice channel ID.');
+    const manifestPath = option(args, '--manifest');
+    const manifest = await loadManifest(manifestPath);
     const runId = 'audio-' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID().slice(0, 8);
     let translatorStarted = false;
     try {
       const started = await request('/join', { guildId, channelId, runId });
       translatorStarted = true;
       console.log(JSON.stringify(started, null, 2));
-      console.log('Translator joined. Run ID: ' + runId);
-      await playFixture({ guildId, channelId, fixturePath, startDelayMs });
-      console.log('Speaker playback finished; waiting for translator processing to drain.');
+      console.log(`Translator joined. Run ID: ${runId}`);
+      console.log(`Loaded ${manifest.fixtures.length} fixtures from ${manifestPath}.`);
+      await playFixtures({ guildId, channelId, ...manifest });
+      console.log('Speaker playlist finished; waiting for translator processing to drain.');
       const deadline = Date.now() + 120_000;
       let status = await request('/status', { guildId });
       while (status.joined && (status.activeSpeakers > 0 || status.queuedSpeakers > 0 || status.pendingJobs > 0 || status.runningJobs > 0 || status.waitingJobs > 0) && Date.now() < deadline) {
@@ -94,7 +121,7 @@ async function main() {
 
   if (action === 'start') {
     const channelId = option(args, '--channel-id');
-    if (!/^\d{17,20}$/.test(channelId || '')) {
+    if (!/^\\d{17,20}$/.test(channelId || '')) {
       throw new Error('--channel-id must be a valid Discord voice channel ID.');
     }
     const runId = option(args, '--run-id') || `audio-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
