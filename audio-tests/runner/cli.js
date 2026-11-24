@@ -82,13 +82,13 @@ async function main() {
   }
 
   const guildId = option(args, '--guild-id');
-  if (!/^\\d{17,20}$/.test(guildId || '')) {
+  if (!/^\d{17,20}$/.test(guildId || '')) {
     throw new Error('--guild-id must be a valid Discord server ID.');
   }
 
   if (action === 'run') {
     const channelId = option(args, '--channel-id');
-    if (!/^\\d{17,20}$/.test(channelId || '')) throw new Error('--channel-id must be a valid Discord voice channel ID.');
+    if (!/^\d{17,20}$/.test(channelId || '')) throw new Error('--channel-id must be a valid Discord voice channel ID.');
     const manifestPath = option(args, '--manifest');
     const manifest = await loadManifest(manifestPath);
     const runId = 'audio-' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID().slice(0, 8);
@@ -121,7 +121,7 @@ async function main() {
 
   if (action === 'start') {
     const channelId = option(args, '--channel-id');
-    if (!/^\\d{17,20}$/.test(channelId || '')) {
+    if (!/^\d{17,20}$/.test(channelId || '')) {
       throw new Error('--channel-id must be a valid Discord voice channel ID.');
     }
     const runId = option(args, '--run-id') || `audio-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
