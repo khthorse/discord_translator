@@ -80,7 +80,7 @@ async function main() {
       await new Promise(resolve => setTimeout(resolve, 500));
       status = await request('/status', { guildId });
     }
-    if (status.joined && (status.activeSpeakers > 0 || status.pendingJobs > 0 || status.runningJobs > 0 || status.waitingJobs > 0)) {
+    if (status.joined && (status.activeSpeakers > 0 || status.queuedSpeakers > 0 || status.pendingJobs > 0 || status.runningJobs > 0 || status.waitingJobs > 0)) {
       console.warn('Timed out waiting for the translator queue to drain; stopping the session anyway.');
     } else {
       console.log('Translator processing queue is drained.');
