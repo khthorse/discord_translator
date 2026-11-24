@@ -64,6 +64,9 @@ async function loadManifest(manifestPath) {
   if (!Array.isArray(parsed.speakers) || parsed.speakers.length === 0) {
     throw new Error('Manifest must define at least one speaker in speakers[].');
   }
+  if (parsed.speakers.length !== 1) {
+    throw new Error('This runner version supports one Discord speaker bot per run; multi-bot playback is the next extension.');
+  }
   const speakers = {};
   const speakerIds = new Set();
   const botIds = new Set();
@@ -130,7 +133,13 @@ async function main() {
       console.log(JSON.stringify(started, null, 2));
       console.log(`Translator joined. Run ID: ${runId}`);
       console.log(`Loaded ${manifest.fixtures.length} fixtures from ${manifestPath}.`);
-      await playFixtures({ guildId, channelId, ...manifest });
+      const configuredSpeaker = Object.values(manifest.speakers)[0];
+      await playFixtures({
+        guildId,
+        channelId,
+        ...manifest,
+        expectedSpeakerId: configuredSpeaker.discordUserId,
+      });
       console.log('Speaker playlist finished; waiting for translator processing to drain.');
       const deadline = Date.now() + 120_000;
       let status = await request('/status', { guildId });
