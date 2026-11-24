@@ -746,7 +746,7 @@ async function requireManageServer(interaction) {
 
 // ----------------------------------------------------------- join / leave ---
 
-async function createVoiceSession(guild, voiceChannel, { testRunId = null } = {}) {
+async function createVoiceSession(guild, voiceChannel, { testRunId = null, testSpeakerLanguages = {} } = {}) {
   // This project runs tests exclusively; a new test join replaces the current
   // voice connection for this guild. It deliberately does not run /leave cleanup.
   sessions.get(guild.id)?.connection.destroy();
@@ -770,6 +770,7 @@ async function createVoiceSession(guild, voiceChannel, { testRunId = null } = {}
     connection,
     guild,
     testRunId,
+    testSpeakerLanguages: new Map(Object.entries(testSpeakerLanguages)),
     active: new Set(),
     speakerQueues: new Map(),
     workQueue: [],
@@ -1547,11 +1548,15 @@ async function handleUtterance(session, userId, pcm, turn, previousOutput, relea
     let result;
 
     try {
+      const testLanguagesConfigured = session.testSpeakerLanguages.has(userId);
+      const expectedLanguages = testLanguagesConfigured
+        ? session.testSpeakerLanguages.get(userId)
+        : getUserLanguagePreferences(session.guild.id, userId);
       const params = new URLSearchParams({
         speaker: userId,
         candidates: settings.inputLanguages.join(','),
-        expected_languages: getUserLanguagePreferences(session.guild.id, userId).join(','),
-        user_preferences_set: getUserLanguagePreferences(session.guild.id, userId).length > 0 ? 'true' : 'false',
+        expected_languages: expectedLanguages.join(','),
+        user_preferences_set: expectedLanguages.length > 0 ? 'true' : 'false',
         language_hint: turn.detectedLanguage || '',
         targets: settings.targetLanguages.join(','),
         translate: settings.targetLanguages.length > 0 ? 'true' : 'false',
@@ -1814,7 +1819,19 @@ function startAudioTestControl() {
       if (!/^[a-zA-Z0-9_-]{1,80}$/.test(runId)) {
         return send(400, { error: 'A valid runId is required' });
       }
-      await createVoiceSession(guild, channel, { testRunId: runId });
+      const speakerLanguages = body.speakerLanguages ?? {};
+      if (!speakerLanguages || typeof speakerLanguages !== 'object' || Array.isArray(speakerLanguages)) {
+        return send(400, { error: 'speakerLanguages must be an object keyed by Discord user ID' });
+      }
+      for (const [speakerId, languages] of Object.entries(speakerLanguages)) {
+        if (!/^\\d{17,20}$/.test(speakerId) || !audioTestSpeakerIds.has(speakerId)) {
+          return send(403, { error: `Speaker ${speakerId} is not in AUDIO_TEST_SPEAKER_IDS` });
+        }
+        if (!Array.isArray(languages) || languages.length > 20 || languages.some(code => typeof code !== 'string' || !/^[a-z]{2,3}$/.test(code))) {
+          return send(400, { error: `Invalid language list for speaker ${speakerId}` });
+        }
+      }
+      await createVoiceSession(guild, channel, { testRunId: runId, testSpeakerLanguages: speakerLanguages });
       logEvent('audio_test_session_started', { runId, guildId, channelId, channelName: channel.name });
       return send(200, { ok: true, joined: true, runId, guildId, channelId, channelName: channel.name });
     } catch (error) {
