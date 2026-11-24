@@ -72,12 +72,23 @@ const messageDeleteSeconds = Math.max(0, Number(MESSAGE_DELETE_SECONDS) || 0);
 const maxConcurrentUtterances = Math.max(1, Number(MAX_CONCURRENT_UTTERANCES) || 3);
 const audioTestSpeakerIds = new Set(AUDIO_TEST_SPEAKER_IDS.split(',').map(id => id.trim()).filter(Boolean));
 
+const audioTestLogDir = path.join(dataDir, 'audio-test-logs');
+
 function logEvent(event, fields = {}) {
-  console.log(JSON.stringify({
+  const line = JSON.stringify({
     timestamp: new Date().toISOString(),
     event,
     ...fields,
-  }));
+  });
+  console.log(line);
+  if (fields.runId) {
+    try {
+      fs.mkdirSync(audioTestLogDir, { recursive: true });
+      fs.appendFileSync(path.join(audioTestLogDir, `${fields.runId}.jsonl`), `${line}\\n`);
+    } catch (error) {
+      console.error('Could not write audio test event log:', error.message);
+    }
+  }
 }
 
 const dataDir = process.env.DATA_DIR || fileURLToPath(new URL('.', import.meta.url));
@@ -1359,11 +1370,14 @@ function runWithSessionLimit(session, job) {
     drainSessionQueue(session);
 
     if (shouldLogQueue) {
-      console.log(
-        `[QUEUE] ${session.workQueue.length} waiting; ` +
-        `${session.runningJobs}/${session.maxConcurrentJobs} active; ` +
-        `${session.pendingJobs} total.`,
-      );
+      logEvent('utterance_queue_state', {
+        runId: session.testRunId,
+        guildId: session.guild.id,
+        waiting: session.workQueue.length,
+        active: session.runningJobs,
+        limit: session.maxConcurrentJobs,
+        pending: session.pendingJobs,
+      });
     }
   });
 }
@@ -1378,7 +1392,11 @@ function drainSessionQueue(session) {
     session.runningJobs++;
 
     if (queueWaitMs >= 250) {
-      console.log(`[QUEUE] Waited ${queueWaitMs}ms before processing an utterance.`);
+      logEvent('utterance_queue_wait', {
+        runId: session.testRunId,
+        guildId: session.guild.id,
+        queueWaitMs,
+      });
     }
 
     Promise.resolve()
