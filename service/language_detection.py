@@ -4,18 +4,24 @@
 def resolve_allowed_languages(
     server_languages: list[str],
     user_languages: list[str],
+    user_preferences_set: bool,
 ) -> list[str]:
     """Apply the server allowlist, then let a user preference narrow it.
 
     An empty server list means the server has not configured a restriction.
-    User preferences can narrow that unrestricted set, but cannot expand a
-    non-empty server allowlist.
+    When user preferences are set, they can narrow a non-empty server
+    allowlist, but cannot expand it. Without a server allowlist, configured
+    user preferences become the effective allowlist.
     """
     if server_languages:
-        if user_languages:
+        if user_preferences_set:
             return [code for code in server_languages if code in user_languages]
         return list(server_languages)
-    return list(user_languages)
+
+    if user_preferences_set:
+        return list(user_languages)
+
+    return []
 
 
 def requested_language_hint(allowed_languages: list[str], language_hint: str) -> str | None:
