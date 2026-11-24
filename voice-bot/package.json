@@ -9,7 +9,7 @@
   "scripts": {
     "register": "node register-commands.js",
     "start": "node index.js",
-    "test": "node --check index.js && node --check register-commands.js && node --check text-translation.js && node --check ../audio-tests/runner/cli.js",
+    "test": "node --check index.js && node --check register-commands.js && node --check text-translation.js && node --check ../audio-tests/runner/cli.js && node --check ../audio-tests/runner/speaker.js",
     "audio-test": "node /audio-tests/runner/cli.js"
   },
   "dependencies": {
