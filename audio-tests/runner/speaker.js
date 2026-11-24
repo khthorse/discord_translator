@@ -113,7 +113,7 @@ export async function playFixtures({ guildId, channelId, fixtures, gapMs = 1000 
     loadedFixtures.push({ ...fixture, pcm, durationMs });
   }
 
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
   let connection;
   let stage = 'client_login';
   client.on('error', error => console.error(JSON.stringify({ event: 'speaker_client_error', message: error.message, stack: error.stack })));
