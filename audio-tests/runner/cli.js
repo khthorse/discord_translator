@@ -70,6 +70,21 @@ async function main() {
   }
 
   if (action === 'stop') {
+    const deadline = Date.now() + 120_000;
+    let status = await request('/status', { guildId });
+    while (
+      status.joined &&
+      (status.activeSpeakers > 0 || status.pendingJobs > 0 || status.runningJobs > 0 || status.waitingJobs > 0) &&
+      Date.now() < deadline
+    ) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      status = await request('/status', { guildId });
+    }
+    if (status.joined && (status.activeSpeakers > 0 || status.pendingJobs > 0 || status.runningJobs > 0 || status.waitingJobs > 0)) {
+      console.warn('Timed out waiting for the translator queue to drain; stopping the session anyway.');
+    } else {
+      console.log('Translator processing queue is drained.');
+    }
     const result = await request('/leave', { guildId });
     console.log(JSON.stringify(result, null, 2));
     console.log('Translator test session stopped.');
