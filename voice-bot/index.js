@@ -1,6 +1,8 @@
 
 import './env.js';
 import fs from 'node:fs';
+import { createServer } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -42,6 +44,11 @@ const {
   SHOW_ORIGINAL = 'true',
   RECORD_WAV = 'false',
   MESSAGE_DELETE_SECONDS = '300',
+  AUDIO_TEST_CONTROL_ENABLED = 'false',
+  AUDIO_TEST_CONTROL_HOST = '127.0.0.1',
+  AUDIO_TEST_CONTROL_PORT = '8766',
+  AUDIO_TEST_CONTROL_TOKEN = '',
+  AUDIO_TEST_SPEAKER_IDS = '',
 } = process.env;
 
 if (!DISCORD_TOKEN) {
@@ -64,6 +71,7 @@ const showOriginal = SHOW_ORIGINAL === 'true';
 const recordWav = RECORD_WAV === 'true';
 const messageDeleteSeconds = Math.max(0, Number(MESSAGE_DELETE_SECONDS) || 0);
 const maxConcurrentUtterances = Math.max(1, Number(MAX_CONCURRENT_UTTERANCES) || 3);
+const audioTestSpeakerIds = new Set(AUDIO_TEST_SPEAKER_IDS.split(',').map(id => id.trim()).filter(Boolean));
 
 const dataDir = process.env.DATA_DIR || fileURLToPath(new URL('.', import.meta.url));
 fs.mkdirSync(dataDir, { recursive: true });
@@ -721,25 +729,15 @@ async function requireManageServer(interaction) {
 
 // ----------------------------------------------------------- join / leave ---
 
-async function onJoin(interaction) {
-  const voiceChannel = interaction.member?.voice?.channel;
-
-  if (!voiceChannel) {
-    return interaction.reply({
-      content: 'Join a voice channel first, then run /join again.',
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  // Replace any existing session in this server.
-  sessions.get(interaction.guildId)?.connection.destroy();
+async function createVoiceSession(guild, voiceChannel) {
+  // This project runs tests exclusively; a new test join replaces the current
+  // voice connection for this guild. It deliberately does not run /leave cleanup.
+  sessions.get(guild.id)?.connection.destroy();
 
   const connection = joinVoiceChannel({
     channelId: voiceChannel.id,
-    guildId: voiceChannel.guild.id,
-    adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+    guildId: guild.id,
+    adapterCreator: guild.voiceAdapterCreator,
     selfDeaf: false,
     selfMute: true,
   });
@@ -748,12 +746,12 @@ async function onJoin(interaction) {
     await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
   } catch {
     connection.destroy();
-    return interaction.editReply('Could not connect to the voice channel in time.');
+    throw new Error('Could not connect to the voice channel in time.');
   }
 
   const session = {
     connection,
-    guild: interaction.guild,
+    guild,
     active: new Set(),
     speakerQueues: new Map(),
     workQueue: [],
@@ -766,7 +764,7 @@ async function onJoin(interaction) {
     activeCaptureBySpeaker: new Map(),
   };
 
-  sessions.set(interaction.guildId, session);
+  sessions.set(guild.id, session);
 
   connection.on(VoiceConnectionStatus.Disconnected, async () => {
     try {
@@ -780,12 +778,25 @@ async function onJoin(interaction) {
   });
 
   connection.on(VoiceConnectionStatus.Destroyed, () => {
-    if (sessions.get(interaction.guildId) === session) {
-      sessions.delete(interaction.guildId);
-    }
+    if (sessions.get(guild.id) === session) sessions.delete(guild.id);
   });
 
   startListening(session);
+  return session;
+}
+
+async function onJoin(interaction) {
+  const voiceChannel = interaction.member?.voice?.channel;
+
+  if (!voiceChannel) {
+    return interaction.reply({
+      content: 'Join a voice channel first, then run /join again.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await createVoiceSession(interaction.guild, voiceChannel);
 
   const settings = getGuildSettings(interaction.guildId);
   const liveStatus = settings.liveChannelId
@@ -1248,7 +1259,7 @@ function startListening(session) {
       // Discord bot accounts (music bots, moderation bots, etc.) should never
       // enter speech recognition or translation.
       const member = await session.guild.members.fetch(userId).catch(() => null);
-      if (member?.user?.bot) return;
+      if (member?.user?.bot && !audioTestSpeakerIds.has(userId)) return;
 
       // Each capture owns its current turn. If the speaker resumes after an
       // interruption, the active capture's turn is replaced explicitly.
@@ -1635,6 +1646,80 @@ async function handleUtterance(session, userId, pcm, turn, previousOutput, relea
     releaseOutput();
   }
 }
+// ------------------------------------------------------ audio test control ---
+
+function startAudioTestControl() {
+  if (AUDIO_TEST_CONTROL_ENABLED !== 'true') return;
+  if (!AUDIO_TEST_CONTROL_TOKEN || AUDIO_TEST_CONTROL_TOKEN.length < 32) {
+    throw new Error('AUDIO_TEST_CONTROL_TOKEN must be set to a value of at least 32 characters when audio test control is enabled.');
+  }
+
+  const expectedToken = Buffer.from(AUDIO_TEST_CONTROL_TOKEN);
+  const server = createServer(async (req, res) => {
+    const send = (status, payload) => {
+      res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify(payload));
+    };
+
+    const supplied = Buffer.from(String(req.headers.authorization || '').replace(/^Bearer\\s+/i, ''));
+    if (supplied.length !== expectedToken.length || !timingSafeEqual(supplied, expectedToken)) {
+      return send(401, { error: 'Unauthorized' });
+    }
+
+    if (req.method !== 'POST' || !['/join', '/leave'].includes(req.url)) {
+      return send(404, { error: 'Not found' });
+    }
+
+    let raw = '';
+    try {
+      for await (const chunk of req) {
+        raw += chunk;
+        if (raw.length > 8192) return send(413, { error: 'Request too large' });
+      }
+      const body = raw ? JSON.parse(raw) : {};
+
+      if (!client.isReady()) return send(503, { error: 'Discord client is not ready' });
+      const guildId = String(body.guildId || '');
+      if (!/^\\d{17,20}$/.test(guildId)) return send(400, { error: 'A valid guildId is required' });
+
+      if (req.url === '/leave') {
+        const session = sessions.get(guildId);
+        if (!session) return send(200, { ok: true, joined: false });
+        session.connection.destroy();
+        sessions.delete(guildId);
+        return send(200, { ok: true, joined: false });
+      }
+
+      const channelId = String(body.channelId || '');
+      if (!/^\\d{17,20}$/.test(channelId)) return send(400, { error: 'A valid channelId is required' });
+      const guild = await client.guilds.fetch(guildId);
+      const channel = await guild.channels.fetch(channelId);
+      if (!channel || ![ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type)) {
+        return send(400, { error: 'channelId must identify a voice or stage channel in the selected guild' });
+      }
+
+      const me = guild.members.me || await guild.members.fetchMe();
+      if (!channel.permissionsFor(me)?.has(PermissionFlagsBits.Connect)) {
+        return send(403, { error: 'The translator bot does not have Connect permission in that channel' });
+      }
+
+      await createVoiceSession(guild, channel);
+      return send(200, { ok: true, joined: true, guildId, channelId, channelName: channel.name });
+    } catch (error) {
+      console.error('[AUDIO TEST CONTROL]', error);
+      return send(500, { error: String(error.message || 'Internal error').slice(0, 300) });
+    }
+  });
+
+  server.listen(Number(AUDIO_TEST_CONTROL_PORT), AUDIO_TEST_CONTROL_HOST, () => {
+    console.log(`Audio test control listening on ${AUDIO_TEST_CONTROL_HOST}:${AUDIO_TEST_CONTROL_PORT}`);
+  });
+  server.on('error', error => console.error('[AUDIO TEST CONTROL] Server error:', error));
+  return server;
+}
+
+const audioTestControlServer = startAudioTestControl();
+
 // -------------------------------------------------------------- shutdown ---
 
 process.on('SIGINT', () => {
@@ -1642,6 +1727,7 @@ process.on('SIGINT', () => {
     session.connection.destroy();
   }
 
+  audioTestControlServer?.close();
   stopOverlayRelay();
   client.destroy();
   process.exit(0);
