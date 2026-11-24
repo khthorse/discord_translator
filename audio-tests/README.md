@@ -1,18 +1,26 @@
 # Audio test harness
 
-This folder contains the reproducible audio-test runner. The first end-to-end milestone supports one dedicated Discord speaker bot playing a prerecorded PCM WAV fixture while the translator listens.
+This folder contains the reproducible audio-test runner. The first end-to-end milestone uses one dedicated Discord speaker bot to play a manifest-defined sequence of prerecorded PCM WAV fixtures while the translator listens.
 
-## Current single-speaker test
+## First sequential playlist
 
-The runner starts the translator session, logs in the speaker bot, joins it to the same voice channel, plays the fixture, waits for translator processing to drain, and stops the translator session in one command.
+The manifest is tracked at `audio-tests/manifest.json`. Fixture audio stays local in the ignored `audio-tests/fixtures/` directory and is mounted read-only into the test container.
 
 Run inside the dedicated translator container:
 
 ```sh
-npm run audio-test -- run --guild-id GUILD_ID --channel-id VOICE_CHANNEL_ID --fixture /audio-tests/fixtures/speaker-1/test.wav
+npm run audio-test -- run --guild-id GUILD_ID --channel-id VOICE_CHANNEL_ID --manifest /audio-tests/manifest.json
 ```
 
-Optional `--start-delay-ms N` delays playback after the speaker bot has joined. The WAV must be uncompressed PCM, 48 kHz, stereo, 16-bit. Keep fixture recordings you own or have permission to use in the local ignored `audio-tests/fixtures/` directory.
+The runner validates and loads every listed fixture before connecting, starts the translator, connects the speaker bot once, plays the clips in manifest order with the configured gap, waits for translator processing to drain, and stops the translator session. It emits a unique run ID and timestamped playback events.
+
+The initial manifest uses the three files in `speaker-1`. They are all played by the same Discord bot identity. The `speaker` folders are just local organization at this stage; separate Discord speaker identities and overlaps will be added in a later milestone.
+
+Manifest paths are relative to `/audio-tests` and must resolve inside `/audio-tests/fixtures`. `expectedLanguage` is test metadata for comparing the result later; it is not sent to or used to influence the translator. `gapMs` is the quiet interval between clips. Fixture WAV files must be uncompressed PCM, 48 kHz, stereo, 16-bit, and no larger than 100 MB each.
+
+Keep fixture recordings you own or have permission to use in the local ignored fixture directory.
+
+## Environment and permissions
 
 The test container needs these environment variables:
 
@@ -68,6 +76,5 @@ It writes one CSV row per running project container per sample under `audio-test
 ## Next milestones
 
 - Multiple speaker bots with per-speaker fixtures and scheduled offsets/overlaps.
-- A manifest-driven test plan and repeatable run summary.
 - Host-side resource sampling correlated with each run.
 - Offline PCM replay as a separate mode. It bypasses Discord transport and Opus decoding, so it complements rather than replaces end-to-end Discord tests.
