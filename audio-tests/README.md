@@ -20,7 +20,7 @@ Each profile uses the same deterministic 75-second cycle: speaker 1 starts at th
 
 Run each language mode with the same profile and fixture files. Use a distinct, simple run ID for each round, for example `short-auto-01` or `long-configured-01`. Automatic mode supplies empty language preferences for every test speaker. Configured mode uses the manifest preferences: speaker 1 English, speaker 2 English, and speaker 3 English and Spanish.
 
-The pre-language-change baseline must be run from the original pre-change code revision in a separate test checkout/Compose project. Do not replace or downgrade the active test branch to run it, and never use the production Compose project for these tests.
+The original Whisper language-selection baseline is available on the `audio-test-baseline` branch. That branch keeps this same test harness but restores `service/main.py` to the version immediately before commit `e525660` (the duplicate-language-detection optimization). Run it with a separate Compose project name, `discord-translator-baseline`, so its bot data stays separate. Stop the active test deployment before switching branches because both use the same Discord bot account. Never run either test project alongside normal production use.
 
 ## Speakers and local credentials
 
@@ -73,7 +73,16 @@ Start the matching profile inside the test translator container:
 npm run audio-test -- short --language-mode auto --run-id short-auto-01
 ```
 
-Use a different run ID for each round. The runner prints it at startup and includes it in playback and processing events. The monitor samples Docker CPU and memory plus NVIDIA GPU utilization, VRAM, temperature, and power when available. CSV output is saved under `audio-tests/results/`.
+Use a different run ID for each round. The runner prints it at startup and includes it in playback and processing events.
+
+For the baseline round, switch to `audio-test-baseline` and use the baseline project name when starting Compose:
+
+```powershell
+git switch audio-test-baseline
+docker compose -p discord-translator-baseline -f compose.test.yaml up -d --build
+```
+
+For the current language logic, switch back to `audio-test-harness` and use `discord-translator-test` as the project name. Stop the current test project before switching. Both projects reuse the downloaded model volumes, but their bot-data volumes are separate. The monitor samples Docker CPU and memory plus NVIDIA GPU utilization, VRAM, temperature, and power when available. CSV output is saved under `audio-tests/results/`.
 
 Translator JSONL events are written to Docker stdout and `/data/audio-test-logs/<run-id>.jsonl`. They include queue timing, service processing duration, detected language, translation count, and errors; transcript text and audio content are not included.
 
