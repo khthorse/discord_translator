@@ -146,7 +146,15 @@ async function main() {
     }
     const schedule = [];
     if (profile === 'custom') {
-      manifest.fixtures.forEach((fixture, index) => schedule.push({ ...fixture, startOffsetMs: fixture.startOffsetMs ?? index * (manifest.gapMs + 1000) }));
+      const speakerStartOffsets = new Map(manifest.speakers.map((speaker, index) => [speaker.id, [0, 20000, 40000][index % 3]]));
+      const occurrenceBySpeaker = new Map();
+      manifest.fixtures.forEach(fixture => {
+        const occurrence = occurrenceBySpeaker.get(fixture.speaker) || 0;
+        occurrenceBySpeaker.set(fixture.speaker, occurrence + 1);
+        const cycleOffset = occurrence * 75000;
+        const defaultOffset = cycleOffset + speakerStartOffsets.get(fixture.speaker);
+        schedule.push({ ...fixture, startOffsetMs: fixture.startOffsetMs ?? defaultOffset });
+      });
     } else {
       const offsets = [0, 20000, 40000];
       const cycles = Math.floor(durationMs / 75000);
