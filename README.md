@@ -823,18 +823,23 @@ docker compose down preserves named volumes. Avoid docker compose down -v unless
 you intentionally want to delete the named model volumes. Removing the host deployment
 folder can still remove the data/voice-bot bind-mounted files.
 
-### Running a separate test deployment
+### Running an isolated branch or test deployment
 
-Use a separate Compose project name and a separate bot-data directory for testing, so
-test settings do not overwrite production settings. For example, a test copy of the
-deployment can use:
+Every Compose file in this repository uses the same `COMPOSE_PROJECT_NAME` setting from
+the root `.env`. The default is `discord-translator`. Change that value when you want a
+branch or test deployment to have its own containers, networks, and project-scoped
+volumes. For example, set `COMPOSE_PROJECT_NAME=discord-translator-ld` for the language-
+detection branch, or `COMPOSE_PROJECT_NAME=discord-translator-test` for a separate test
+instance, then run the appropriate Compose file:
 
+    docker compose up -d
+    # or, for the audio-test deployment:
     docker compose -f compose.test.yaml up -d
 
-A separate project name gives the Compose-managed networks and named volumes a separate
-project namespace, but it does not automatically separate host bind mounts. Make sure
-the test Compose file points ./data/voice-bot to a test-only directory before starting
-it. Do not run production and test bot containers at the same time with the same
-DISCORD_TOKEN: Discord only allows one active gateway session for that bot account.
-If both deployments use the same model volumes, do not run competing Ollama instances
-against those volumes simultaneously. Stop one deployment before starting the other.
+The same project name is used by both Compose files, so the resource monitor and Docker
+commands address the same deployment. A separate project name does not automatically
+separate host bind mounts; make sure each deployment uses a separate host data directory
+if it must not share bot settings. Do not run production and test bot containers at the
+same time with the same `DISCORD_TOKEN`: Discord only allows one active gateway session
+for that bot account. Also avoid running competing Ollama instances against the same
+model volumes simultaneously.
