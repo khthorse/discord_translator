@@ -171,7 +171,13 @@ export async function playFixtures({ guildId, channelId, fixtures, speakers, spe
     await Promise.all(tasks);
   } finally {
     for (const session of sessions) {
-      session.connection?.destroy();
+      if (session.connection && session.connection.state.status !== VoiceConnectionStatus.Destroyed) {
+        try {
+          session.connection.destroy();
+        } catch (error) {
+          console.error(JSON.stringify({ event: 'speaker_connection_cleanup_error', speakerId: session.speaker.id, message: error.message }));
+        }
+      }
       session.client.destroy();
     }
   }
