@@ -139,7 +139,7 @@ async function main() {
       return { speakerId: speaker.id, discordUserId: speaker.discordUserId, token: SPEAKER_TOKENS[index] };
     });
     const profile = action === 'long' ? 'long' : action === 'short' ? 'short' : 'custom';
-    const durationMs = profile === 'long' ? 24 * 60 * 1000 : profile === 'short' ? 4 * 60 * 1000 : null;
+    const durationMs = profile === 'long' ? 25 * 60 * 1000 : profile === 'short' ? 4 * 60 * 1000 : null;
     const fixturesBySpeaker = new Map(manifest.speakers.map(s => [s.id, manifest.fixtures.filter(f => f.speaker === s.id)]));
     for (const speaker of manifest.speakers) {
       if (!fixturesBySpeaker.get(speaker.id).length) throw new Error('No fixtures defined for speaker ' + speaker.id + '.');
