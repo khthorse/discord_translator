@@ -113,23 +113,12 @@ services:
       - backend
       - edge
 
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    profiles: ["tunnel"]
-    restart: unless-stopped
-    command: ["tunnel", "--no-autoupdate", "run"]
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
-    depends_on:
-      - bot
-    networks:
-      - edge
-
 networks:
   backend:
     driver: bridge
   edge:
-    driver: bridge
+    external: true
+    name: discord-translator_edge
 volumes:
   whisper_models:
     external: true
