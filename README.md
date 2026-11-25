@@ -829,7 +829,7 @@ Use a separate Compose project name and a separate bot-data directory for testin
 test settings do not overwrite production settings. For example, a test copy of the
 deployment can use:
 
-    docker compose -p discord-translator-test up -d
+    docker compose -f compose.test.yaml up -d
 
 A separate project name gives the Compose-managed networks and named volumes a separate
 project namespace, but it does not automatically separate host bind mounts. Make sure
