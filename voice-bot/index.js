@@ -147,7 +147,7 @@ function refreshOverlayLanguages() {
   }
   setOverlayLanguages([...languages].map(code => ({
     code,
-    name: new Intl.DisplayNames(['en'], { type: 'language' }).of(code) || code.toUpperCase(),
+    name: languageDisplayName(code).toUpperCase(),
     flag: languageFlag(code),
   })));
 }
@@ -223,7 +223,11 @@ function saveUserLanguagePreferences(guildId, userId, languages) {
 }
 
 function languageDisplayName(code) {
-  return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) || code;
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) || String(code);
+  } catch {
+    return String(code);
+  }
 }
 
 const SETUP_LANGUAGE_CODES = ['en', 'es', 'no', 'nn', 'sv', 'da', 'fi', 'de', 'fr', 'it', 'pt', 'nl', 'pl', 'ru', 'uk', 'tr', 'ar', 'ja', 'ko', 'zh'];
