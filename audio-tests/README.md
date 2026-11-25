@@ -64,7 +64,7 @@ The runner validates and loads all fixture files before connecting to Discord.
 Choose a run ID, then start the resource monitor on the Windows Docker host in a second PowerShell terminal:
 
 ```powershell
-.\\audio-tests\\runner\\monitor.ps1 -RunId short-auto-01
+.\audio-tests\runner\monitor.ps1 -RunId short-auto-01
 ```
 
 Start the matching profile inside the test translator container:
