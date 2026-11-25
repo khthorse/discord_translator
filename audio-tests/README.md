@@ -80,7 +80,7 @@ For the baseline round, switch to `audio-test-baseline` and use the baseline pro
 ```powershell
 git switch audio-test-baseline
 docker compose -p discord-translator-baseline -f compose.test.yaml up -d --build
-.\\audio-tests\\runner\\monitor.ps1 -RunId short-baseline-01 -ProjectName discord-translator-baseline
+.\audio-tests\runner\monitor.ps1 -RunId short-baseline-01 -ProjectName discord-translator-baseline
 ```
 
 Then run the baseline profile inside its translator container with `--language-mode auto`.
