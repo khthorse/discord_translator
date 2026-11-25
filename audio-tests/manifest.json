@@ -1,32 +1,72 @@
 {
   "version": 1,
-  "description": "Initial sequential language-detection test using the three speaker-1 recordings",
-  "gapMs": 1000,
+  "description": "Shared deterministic schedule fixtures for three independent Discord speaker bots",
+  "speakers": [
+    {
+      "id": "speaker-1",
+      "discordUserId": "1574827583667839188",
+      "languages": [
+        "en"
+      ]
+    },
+    {
+      "id": "speaker-2",
+      "discordUserId": "1574956448494911498",
+      "languages": [
+        "en"
+      ]
+    },
+    {
+      "id": "speaker-3",
+      "discordUserId": "1574956808932556931",
+      "languages": [
+        "en",
+        "es"
+      ]
+    }
+  ],
   "fixtures": [
     {
-      "id": "speaker-1-english-opening",
+      "id": "speaker-1-opening",
       "speaker": "speaker-1",
       "path": "fixtures/speaker-1/Your_English_Listening_is_Advanced_if_You_Understand_This_clip_0m00s-0m20s.wav",
       "expectedLanguage": "en"
     },
     {
-      "id": "speaker-1-english-middle",
+      "id": "speaker-1-middle",
       "speaker": "speaker-1",
       "path": "fixtures/speaker-1/Your_English_Listening_is_Advanced_if_You_Understand_This_clip_10m00s-10m30s.wav",
       "expectedLanguage": "en"
     },
     {
-      "id": "speaker-1-english-extra",
+      "id": "speaker-1-extra",
       "speaker": "speaker-1",
       "path": "fixtures/speaker-1/your-english-listening-is-advanced-if-you-understand-this-aohh-44.wav",
       "expectedLanguage": "en"
-    }
-  ],
-  "speakers": [
+    },
     {
-      "id": "speaker-1",
-      "discordUserId": "1574827583667839188",
-      "languages": []
+      "id": "speaker-2-middle",
+      "speaker": "speaker-2",
+      "path": "fixtures/speaker-2/Your_English_Listening_is_Advanced_if_You_Understand_This_clip_10m00s-10m30s.wav",
+      "expectedLanguage": "en"
+    },
+    {
+      "id": "speaker-2-clip",
+      "speaker": "speaker-2",
+      "path": "fixtures/speaker-2/Your_English_Listening_is_Advanced_if_You_Understand_This_clip_3m50s-4m30s.wav",
+      "expectedLanguage": "en"
+    },
+    {
+      "id": "speaker-3-spanish",
+      "speaker": "speaker-3",
+      "path": "fixtures/speaker-3/a-short-audio-message-in-spanish-vofei-4.wav",
+      "expectedLanguage": "es"
+    },
+    {
+      "id": "speaker-3-english",
+      "speaker": "speaker-3",
+      "path": "fixtures/speaker-3/your-english-listening-is-advanced-if-you-understand-this-aohh-44.wav",
+      "expectedLanguage": "en"
     }
   ]
 }
