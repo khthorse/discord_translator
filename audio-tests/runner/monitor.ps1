@@ -18,7 +18,7 @@ if (-not $ProjectName) {
   $composeConfig = ($composeJson -join [Environment]::NewLine) | ConvertFrom-Json
   $ProjectName = [string]$composeConfig.name
   if ([string]::IsNullOrWhiteSpace($ProjectName)) {
-    throw "Compose did not return a project name. Check AUDIO_TEST_COMPOSE_PROJECT_NAME in .env."
+    throw "Compose did not return a project name. Check COMPOSE_PROJECT_NAME in .env."
   }
 }
 
