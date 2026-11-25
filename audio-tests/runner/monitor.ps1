@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory = $true)]
   [string]$RunId,
-  [string]$ProjectName = "discord-translator-test",
+  [string]$ProjectName = "discord-translator-ld",
   [ValidateRange(1, 60)]
   [int]$IntervalSeconds = 1
 )
