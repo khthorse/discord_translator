@@ -110,6 +110,16 @@ export async function playFixtures({ guildId, channelId, fixtures, speakers, spe
       const session = { speaker, client, connection: null, player: null };
       sessions.push(session);
       client.on('error', error => console.error(JSON.stringify({ event: 'speaker_client_error', speakerId: speaker.id, message: error.message })));
+      client.on('voiceStateUpdate', (oldState, newState) => {
+        if (newState.guild.id !== guildId || newState.id !== client.user?.id) return;
+        console.log(JSON.stringify({
+          event: 'speaker_discord_voice_state',
+          speakerId: speaker.id,
+          discordUserId: newState.id,
+          oldChannelId: oldState.channelId,
+          channelId: newState.channelId,
+        }));
+      });
       console.log(JSON.stringify({ event: 'speaker_connecting', speakerId: speaker.id }));
       await client.login(credential.token);
       if (client.user.id !== speaker.discordUserId) {
@@ -124,6 +134,10 @@ export async function playFixtures({ guildId, channelId, fixtures, speakers, spe
         channelId: channel.id,
         guildId: guild.id,
         adapterCreator: guild.voiceAdapterCreator,
+        // Each speaker is a separate Discord client in this process. A unique
+        // group prevents @discordjs/voice from replacing another speaker's
+        // connection for the same guild.
+        group: `audio-test-${speaker.id}`,
         selfDeaf: true,
       });
       session.connection.on('error', error => console.error(JSON.stringify({ event: 'speaker_voice_error', speakerId: speaker.id, message: error.message })));
