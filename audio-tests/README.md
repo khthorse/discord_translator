@@ -11,14 +11,14 @@ npm run audio-test -- short
 npm run audio-test -- long
 ```
 
-Both profiles accept `--language-mode auto` (default) or `--language-mode configured`.
+Both profiles accept `--language-mode auto` (default) or `--language-mode configured`, plus an optional `--run-id` so the resource monitor can be started first.
 
 - **Short:** approximately 4 minutes of scheduled playback. Use it first to verify all three bots connect, audio is recognized, overlaps work, and cleanup succeeds.
 - **Long:** approximately 25 minutes of scheduled playback, with repeated clips, staggered starts, and overlapping speakers. Use it for sustained load and game-performance comparisons.
 
 Each profile uses the same deterministic 75-second cycle: speaker 1 starts at the cycle boundary, speaker 2 starts 20 seconds later, and speaker 3 starts 40 seconds later. Each speaker's clips are rotated in manifest order. This creates repeatable cross-speaker overlap without scheduling a second clip for the same bot before its previous 30–44 second clip should have finished.
 
-Run each language mode with the same profile and fixture files. Automatic mode supplies empty language preferences for every test speaker. Configured mode uses the manifest preferences: speaker 1 English, speaker 2 English, and speaker 3 English and Spanish.
+Run each language mode with the same profile and fixture files. Use a distinct, simple run ID for each round, for example `short-auto-01` or `long-configured-01`. Automatic mode supplies empty language preferences for every test speaker. Configured mode uses the manifest preferences: speaker 1 English, speaker 2 English, and speaker 3 English and Spanish.
 
 The pre-language-change baseline must be run from the original pre-change code revision in a separate test checkout/Compose project. Do not replace or downgrade the active test branch to run it, and never use the production Compose project for these tests.
 
@@ -36,6 +36,8 @@ AUDIO_TEST_CHANNEL_ID=YOUR_TEST_VOICE_CHANNEL_ID
 ```
 
 The runner pairs each ID with the token at the same list position and verifies that each token authenticates as the expected Discord user. The IDs must be unique, and the lists must have the same number of entries. Never put real credentials in Git or logs. Do not share tokens or your `.env` file.
+
+The test Compose deployment uses the same `DISCORD_TOKEN` as normal operation. **Stop the normal translator deployment before starting the test deployment**, and do not run both at once. When testing is finished, stop the test deployment before returning to normal use. The test deployment keeps bot data separate; it reuses the existing Whisper and Ollama model volumes so models do not need to be downloaded again.
 
 The translator test container also needs:
 
@@ -59,13 +61,19 @@ The runner validates and loads all fixture files before connecting to Discord.
 
 ## Monitoring and results
 
-Start the resource monitor on the Windows Docker host in a second PowerShell terminal before starting a profile:
+Choose a run ID, then start the resource monitor on the Windows Docker host in a second PowerShell terminal:
 
 ```powershell
-.\\audio-tests\\runner\\monitor.ps1 -RunId YOUR_RUN_ID
+.\\audio-tests\\runner\\monitor.ps1 -RunId short-auto-01
 ```
 
-The runner prints a unique run ID when it starts. Use that ID with the monitor. The monitor samples Docker CPU and memory plus NVIDIA GPU utilization, VRAM, temperature, and power when available. CSV output is saved under `audio-tests/results/`.
+Start the matching profile inside the test translator container:
+
+```sh
+npm run audio-test -- short --language-mode auto --run-id short-auto-01
+```
+
+Use a different run ID for each round. The runner prints it at startup and includes it in playback and processing events. The monitor samples Docker CPU and memory plus NVIDIA GPU utilization, VRAM, temperature, and power when available. CSV output is saved under `audio-tests/results/`.
 
 Translator JSONL events are written to Docker stdout and `/data/audio-test-logs/<run-id>.jsonl`. They include queue timing, service processing duration, detected language, translation count, and errors; transcript text and audio content are not included.
 
