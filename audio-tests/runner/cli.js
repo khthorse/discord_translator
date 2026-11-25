@@ -20,8 +20,8 @@ function usage() {
 
 Usage:
   npm run audio-test -- start --guild-id ID --channel-id ID [--run-id ID]
-  npm run audio-test -- short [--language-mode auto|configured]
-  npm run audio-test -- long [--language-mode auto|configured]
+  npm run audio-test -- short [--language-mode auto|configured] [--run-id ID]
+  npm run audio-test -- long [--language-mode auto|configured] [--run-id ID]
   npm run audio-test -- run --guild-id ID --channel-id ID --manifest /audio-tests/manifest.json
   npm run audio-test -- stop --guild-id ID
 
@@ -160,7 +160,10 @@ async function main() {
       }
     }
     const speakerLanguages = Object.fromEntries(manifest.speakers.map(s => [s.discordUserId, mode === 'auto' ? [] : s.languages]));
-    const runId = 'audio-' + profile + '-' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID().slice(0, 8);
+    const requestedRunId = option(args, '--run-id');
+    const runId = requestedRunId || ('audio-' + profile + '-' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID().slice(0, 8));
+    if (!/^[a-zA-Z0-9_-]{1,80}$/.test(runId)) throw new Error('--run-id may contain only letters, numbers, underscores and hyphens (max 80 characters).');
+    for (const fixture of schedule) fixture.runId = runId;
     let translatorStarted = false;
     try {
       const started = await request('/join', { guildId, channelId, runId, speakerLanguages });
