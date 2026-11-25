@@ -149,7 +149,7 @@ async function main() {
       manifest.fixtures.forEach((fixture, index) => schedule.push({ ...fixture, startOffsetMs: fixture.startOffsetMs ?? index * (manifest.gapMs + 1000) }));
     } else {
       const offsets = [0, 20000, 40000];
-      const cycles = Math.ceil(durationMs / 75000);
+      const cycles = Math.floor(durationMs / 75000);
       for (let cycle = 0; cycle < cycles; cycle++) {
         manifest.speakers.forEach((speaker, speakerIndex) => {
           const choices = fixturesBySpeaker.get(speaker.id);
