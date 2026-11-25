@@ -75,18 +75,18 @@ npm run audio-test -- short --language-mode auto --run-id short-auto-01
 
 Use a different run ID for each round. The runner prints it at startup and includes it in playback and processing events.
 
-For the baseline round, switch to `audio-test-baseline` and temporarily override the project-name variable in the current PowerShell window. Start the monitor after Compose resolves that same value:
+For the baseline round, switch to `audio-test-baseline` and temporarily override the universal project-name variable in the current PowerShell window. Start the monitor after Compose resolves that same value:
 
 ```powershell
 git switch audio-test-baseline
-$env:AUDIO_TEST_COMPOSE_PROJECT_NAME = "discord-translator-baseline"
+$env:COMPOSE_PROJECT_NAME = "discord-translator-baseline"
 docker compose -f compose.test.yaml up -d --build
 .\audio-tests\runner\monitor.ps1 -RunId short-baseline-01 -ProjectName discord-translator-baseline
 ```
 
 Then run the baseline profile inside its translator container with `--language-mode auto`.
 
-For the current language logic, switch back to `audio-test-harness`. The project name comes from `AUDIO_TEST_COMPOSE_PROJECT_NAME` in the root `.env` (default: `discord-translator-ld`), so Compose and the resource monitor use the same value. Stop the current test project before switching. Both projects reuse the downloaded model volumes, but their bot-data volumes are separate.
+For the current language logic, switch back to `audio-test-harness`. The project name comes from the universal `COMPOSE_PROJECT_NAME` in the root `.env` (default: `discord-translator`), so Compose and the resource monitor use the same value. Stop the current test project before switching. Both projects reuse the downloaded model volumes, but their bot-data volumes are separate.
 
 The desktop overlay's remote relay uses the existing Cloudflare tunnel to reach the bot's authenticated WebSocket relay. The test Compose file joins the existing production edge network (`discord-translator_edge`) and does not define or start another `cloudflared` container. Keep the one existing Cloudflare connector running while switching between normal use and testing.
 
@@ -96,7 +96,7 @@ When switching to tests, stop the normal translator bot so the same Discord bot 
 docker compose -f compose.test.yaml up -d --build
 ```
 
-When returning to the current test branch, clear the temporary baseline override with `$env:AUDIO_TEST_COMPOSE_PROJECT_NAME = "discord-translator-ld"` (or close that PowerShell window) before starting Compose. When returning to normal use, stop the test deployment before restarting the normal translator bot. Do not run the normal and test translator bots together. The test bot's private audio-test control API stays bound to localhost inside its container and is not routed through Cloudflare.
+When returning to the current test branch, clear the temporary baseline override with `$env:COMPOSE_PROJECT_NAME = "discord-translator-ld"` (or close that PowerShell window) before starting Compose. When returning to normal use, stop the test deployment before restarting the normal translator bot. Do not run the normal and test translator bots together. The test bot's private audio-test control API stays bound to localhost inside its container and is not routed through Cloudflare.
 
 The monitor samples Docker CPU and memory plus NVIDIA GPU utilization, VRAM, temperature, and power when available. CSV output is saved under `audio-tests/results/`.
 
