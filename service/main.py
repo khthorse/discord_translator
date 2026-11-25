@@ -14,12 +14,6 @@ import time
 import wave
 from pathlib import Path
 
-from language_detection import (
-    best_allowed_language,
-    requested_language_hint,
-    resolve_allowed_languages,
-)
-
 # ---------------------------------------------------------------- CUDA setup ---
 
 # Make NVIDIA CUDA DLLs available to CTranslate2 on Windows.
@@ -151,14 +145,30 @@ def split_codes(value: str) -> list[str]:
     return seen
 
 
+def pick_language(audio, candidates: list[str]) -> str | None:
+    """Determine the spoken language from the configured candidates."""
+
+    if len(candidates) == 1:
+        return candidates[0]
+
+    try:
+        _, _, probs = model.detect_language(audio)
+        p = dict(probs)
+
+    except Exception as err:
+        print(f"Language detection failed, using auto-detect: {err}")
+        return None
+
+    pool = candidates or list(p)
+
+    return max(pool, key=lambda code: p.get(code, 0.0))
+
+
 def process(
     wav_bytes: bytes,
     speaker: str,
     candidates: list[str],
     targets: list[str],
-    expected_languages: list[str],
-    user_preferences_set: bool,
-    language_hint: str,
     translate_from: str,
     translate_enabled: bool,
 ) -> dict:
@@ -179,30 +189,12 @@ def process(
     queue_wait = time.perf_counter() - queue_started
 
     try:
-        allowed_languages = resolve_allowed_languages(
-            candidates,
-            expected_languages,
-            user_preferences_set,
-        )
-        if candidates and user_preferences_set and not allowed_languages:
-            raise HTTPException(
-                status_code=422,
-                detail="Your language preferences do not overlap with this server's allowed languages.",
-            )
-
-        # A single allowed language (or a valid per-turn hint) skips detection.
-        # For multiple languages, let faster-whisper detect during transcription;
-        # its encoder output is reused. Only if its detected language is outside
-        # the allowlist do we select the best allowed probability and retry.
-        requested_language = requested_language_hint(
-            allowed_languages,
-            language_hint,
-        )
-
         stt_started = time.perf_counter()
+        lang = pick_language(audio, candidates)
+
         segments, info = model.transcribe(
             audio,
-            language=requested_language,
+            language=lang,
             beam_size=WHISPER_BEAM_SIZE,
             vad_filter=True,
             condition_on_previous_text=False,
@@ -215,30 +207,7 @@ def process(
             if s.no_speech_prob < 0.7
         ).strip()
 
-        lang = requested_language or info.language
-        correction_duration = 0.0
-        if allowed_languages and lang not in allowed_languages:
-            correction_started = time.perf_counter()
-            corrected_language = best_allowed_language(
-                allowed_languages,
-                dict(info.all_language_probs or []),
-            )
-            if corrected_language:
-                corrected_segments, _ = model.transcribe(
-                    audio,
-                    language=corrected_language,
-                    beam_size=WHISPER_BEAM_SIZE,
-                    vad_filter=True,
-                    condition_on_previous_text=False,
-                )
-                text = " ".join(
-                    segment.text.strip()
-                    for segment in corrected_segments
-                    if segment.no_speech_prob < 0.7
-                ).strip()
-                lang = corrected_language
-            correction_duration = time.perf_counter() - correction_started
-
+        lang = lang or info.language
         stt_duration = time.perf_counter() - stt_started
     finally:
         transcription_slots.release()
@@ -286,8 +255,7 @@ def process(
 
     print(
         f"[{speaker}] ({lang}) {text!r} -> {translations or None}  "
-        f"[queue {queue_wait:.2f}s, stt {stt_duration - correction_duration:.2f}s, "
-        f"allowlist_retry {correction_duration:.2f}s, "
+        f"[queue {queue_wait:.2f}s, stt {stt_duration:.2f}s, "
         f"translate {t2 - t1:.2f}s, total {t2 - t0:.2f}s]"
     )
 
@@ -304,9 +272,6 @@ async def process_endpoint(
     speaker: str = "unknown",
     candidates: str = "",
     targets: str = "",
-    expected_languages: str = "",
-    user_preferences_set: bool = False,
-    language_hint: str = "",
     translate_from: str = "",
     translate: bool = True,
 ):
@@ -324,9 +289,6 @@ async def process_endpoint(
         speaker,
         split_codes(candidates),
         split_codes(targets),
-        split_codes(expected_languages),
-        user_preferences_set,
-        language_hint.strip().lower(),
         translate_from.strip().lower(),
         translate,
     )
