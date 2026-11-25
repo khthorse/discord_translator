@@ -129,8 +129,7 @@ networks:
   backend:
     driver: bridge
   edge:
-    external: true
-    name: discord-translator_edge
+    driver: bridge
 volumes:
   whisper_models:
     external: true
