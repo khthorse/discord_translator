@@ -8,6 +8,10 @@ import { playFixtures } from './speaker.js';
 const CONTROL_PORT = Number(process.env.AUDIO_TEST_CONTROL_PORT || '8766');
 const BASE_URL = `http://127.0.0.1:${CONTROL_PORT}`;
 const TOKEN = process.env.AUDIO_TEST_CONTROL_TOKEN || '';
+const DEFAULT_GUILD_ID = process.env.AUDIO_TEST_GUILD_ID || '';
+const DEFAULT_CHANNEL_ID = process.env.AUDIO_TEST_CHANNEL_ID || '';
+const SPEAKER_IDS = (process.env.AUDIO_TEST_SPEAKER_IDS || '').split(',').map(v => v.trim()).filter(Boolean);
+const SPEAKER_TOKENS = (process.env.AUDIO_TEST_SPEAKER_TOKENS || '').split(',').map(v => v.trim()).filter(Boolean);
 const AUDIO_TEST_ROOT = '/audio-tests';
 const FIXTURE_ROOT = path.resolve(AUDIO_TEST_ROOT, 'fixtures');
 
@@ -16,6 +20,8 @@ function usage() {
 
 Usage:
   npm run audio-test -- start --guild-id ID --channel-id ID [--run-id ID]
+  npm run audio-test -- short [--language-mode auto|configured]
+  npm run audio-test -- long [--language-mode auto|configured]
   npm run audio-test -- run --guild-id ID --channel-id ID --manifest /audio-tests/manifest.json
   npm run audio-test -- stop --guild-id ID
 
@@ -64,9 +70,7 @@ async function loadManifest(manifestPath) {
   if (!Array.isArray(parsed.speakers) || parsed.speakers.length === 0) {
     throw new Error('Manifest must define at least one speaker in speakers[].');
   }
-  if (parsed.speakers.length !== 1) {
-    throw new Error('This runner version supports one Discord speaker bot per run; multi-bot playback is the next extension.');
-  }
+
   const speakers = {};
   const speakerIds = new Set();
   const botIds = new Set();
@@ -102,7 +106,7 @@ async function loadManifest(manifestPath) {
     }
     return { ...fixture, path: resolvedFixture };
   });
-  return { fixtures, gapMs, speakers };
+  return { fixtures, gapMs, speakers: Object.entries(speakers).map(([id, value]) => ({ id, ...value })) };
 }
 
 async function main() {
@@ -112,49 +116,68 @@ async function main() {
     return;
   }
 
-  const guildId = option(args, '--guild-id');
+  const guildId = option(args, '--guild-id') || DEFAULT_GUILD_ID;
   if (!/^\d{17,20}$/.test(guildId || '')) {
-    throw new Error('--guild-id must be a valid Discord server ID.');
+    throw new Error('Set AUDIO_TEST_GUILD_ID or pass a valid --guild-id.');
   }
 
-  if (action === 'run') {
-    const channelId = option(args, '--channel-id');
-    if (!/^\d{17,20}$/.test(channelId || '')) throw new Error('--channel-id must be a valid Discord voice channel ID.');
-    const manifestPath = option(args, '--manifest');
-    const manifest = await loadManifest(manifestPath);
-    const runId = 'audio-' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID().slice(0, 8);
+  if (['short', 'long', 'run'].includes(action)) {
+    const channelId = option(args, '--channel-id') || DEFAULT_CHANNEL_ID;
+    if (!/^\d{17,20}$/.test(channelId || '')) throw new Error('Set AUDIO_TEST_CHANNEL_ID or pass a valid --channel-id.');
+    const mode = option(args, '--language-mode') || 'auto';
+    if (!['auto', 'configured'].includes(mode)) throw new Error('--language-mode must be auto or configured.');
+    const manifest = await loadManifest(option(args, '--manifest') || '/audio-tests/manifest.json');
+    if (!SPEAKER_IDS.length || !SPEAKER_TOKENS.length || SPEAKER_IDS.length !== SPEAKER_TOKENS.length) {
+      throw new Error('Set AUDIO_TEST_SPEAKER_IDS and AUDIO_TEST_SPEAKER_TOKENS as matching comma-separated lists.');
+    }
+    if (new Set(SPEAKER_IDS).size !== SPEAKER_IDS.length || SPEAKER_TOKENS.some(token => !token)) {
+      throw new Error('Speaker IDs must be unique and every paired token must be non-empty.');
+    }
+    const speakerCredentials = manifest.speakers.map(speaker => {
+      const index = SPEAKER_IDS.indexOf(speaker.discordUserId);
+      if (index < 0 || !SPEAKER_TOKENS[index]) throw new Error('No paired token configured for manifest speaker ' + speaker.id + '.');
+      return { speakerId: speaker.id, discordUserId: speaker.discordUserId, token: SPEAKER_TOKENS[index] };
+    });
+    const profile = action === 'long' ? 'long' : action === 'short' ? 'short' : 'custom';
+    const durationMs = profile === 'long' ? 24 * 60 * 1000 : profile === 'short' ? 4 * 60 * 1000 : null;
+    const fixturesBySpeaker = new Map(manifest.speakers.map(s => [s.id, manifest.fixtures.filter(f => f.speaker === s.id)]));
+    for (const speaker of manifest.speakers) {
+      if (!fixturesBySpeaker.get(speaker.id).length) throw new Error('No fixtures defined for speaker ' + speaker.id + '.');
+    }
+    const schedule = [];
+    if (profile === 'custom') {
+      manifest.fixtures.forEach((fixture, index) => schedule.push({ ...fixture, startOffsetMs: fixture.startOffsetMs ?? index * (manifest.gapMs + 1000) }));
+    } else {
+      const offsets = [0, 20000, 40000];
+      const cycles = Math.ceil(durationMs / 75000);
+      for (let cycle = 0; cycle < cycles; cycle++) {
+        manifest.speakers.forEach((speaker, speakerIndex) => {
+          const choices = fixturesBySpeaker.get(speaker.id);
+          const fixture = choices[cycle % choices.length];
+          const startOffsetMs = cycle * 75000 + offsets[speakerIndex % offsets.length];
+          if (startOffsetMs < durationMs) schedule.push({ ...fixture, startOffsetMs });
+        });
+      }
+    }
+    const speakerLanguages = Object.fromEntries(manifest.speakers.map(s => [s.discordUserId, mode === 'auto' ? [] : s.languages]));
+    const runId = 'audio-' + profile + '-' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID().slice(0, 8);
     let translatorStarted = false;
     try {
-      const speakerLanguages = Object.fromEntries(
-        Object.values(manifest.speakers).map(speaker => [speaker.discordUserId, speaker.languages]),
-      );
       const started = await request('/join', { guildId, channelId, runId, speakerLanguages });
       translatorStarted = true;
+      console.log(JSON.stringify({ event: 'test_run_started', runId, profile, languageMode: mode, fixtureEvents: schedule.length, plannedDurationMs: durationMs }));
       console.log(JSON.stringify(started, null, 2));
-      console.log(`Translator joined. Run ID: ${runId}`);
-      console.log(`Loaded ${manifest.fixtures.length} fixtures from ${manifestPath}.`);
-      const configuredSpeaker = Object.values(manifest.speakers)[0];
-      await playFixtures({
-        guildId,
-        channelId,
-        ...manifest,
-        expectedSpeakerId: configuredSpeaker.discordUserId,
-      });
-      console.log('Speaker playlist finished; waiting for translator processing to drain.');
-      const deadline = Date.now() + 120_000;
+      await playFixtures({ guildId, channelId, fixtures: schedule, speakers: manifest.speakers, speakerCredentials });
+      const deadline = Date.now() + 180000;
       let status = await request('/status', { guildId });
       while (status.joined && (status.activeSpeakers > 0 || status.queuedSpeakers > 0 || status.pendingJobs > 0 || status.runningJobs > 0 || status.waitingJobs > 0) && Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 500));
         status = await request('/status', { guildId });
       }
       if (status.joined && (status.activeSpeakers > 0 || status.queuedSpeakers > 0 || status.pendingJobs > 0 || status.runningJobs > 0 || status.waitingJobs > 0)) throw new Error('Timed out waiting for translator processing to drain.');
-      console.log('Translator processing queue is drained.');
+      console.log(JSON.stringify({ event: 'test_run_completed', runId, profile, languageMode: mode }));
     } finally {
-      if (translatorStarted) {
-        const stopped = await request('/leave', { guildId });
-        console.log(JSON.stringify(stopped, null, 2));
-        console.log('Translator test session stopped.');
-      }
+      if (translatorStarted) await request('/leave', { guildId });
     }
     return;
   }
