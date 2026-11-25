@@ -87,13 +87,15 @@ Then run the baseline profile inside its translator container with `--language-m
 
 For the current language logic, switch back to `audio-test-harness` and use `discord-translator-test` as the project name. Stop the current test project before switching. Both projects reuse the downloaded model volumes, but their bot-data volumes are separate.
 
-The desktop overlay's remote relay uses the Cloudflare tunnel to reach the bot's authenticated WebSocket relay. If you use the overlay in relay mode during testing, start the test deployment with the tunnel profile enabled:
+The desktop overlay's remote relay uses the existing Cloudflare tunnel to reach the bot's authenticated WebSocket relay. The test Compose file joins the existing production edge network (`discord-translator_edge`) and does not define or start another `cloudflared` container. Keep the one existing Cloudflare connector running while switching between normal use and testing.
+
+When switching to tests, stop the normal translator bot so the same Discord bot account is never logged in twice, but do not stop or remove the Cloudflare connector or its edge network. Then start the test deployment without a tunnel profile:
 
 ```powershell
-docker compose --profile tunnel -p discord-translator-test -f compose.test.yaml up -d --build
+docker compose -p discord-translator-test -f compose.test.yaml up -d --build
 ```
 
-The tunnel profile is optional; omit `--profile tunnel` if you are not using the remote overlay relay. Do not run the normal deployment and test deployment at the same time: both use the same Discord bot account and Cloudflare tunnel credentials. The test bot's private audio-test control API stays bound to localhost inside its container and is not routed through Cloudflare.
+When returning to normal use, stop the test deployment before restarting the normal translator bot. Do not run the normal and test translator bots together. The test bot's private audio-test control API stays bound to localhost inside its container and is not routed through Cloudflare.
 
 The monitor samples Docker CPU and memory plus NVIDIA GPU utilization, VRAM, temperature, and power when available. CSV output is saved under `audio-tests/results/`.
 
