@@ -161,6 +161,7 @@ export async function playFixtures({ guildId, channelId, fixtures, speakers, spe
       await finished;
       console.log(JSON.stringify({
         event: 'speaker_playback_finished',
+        runId: fixture.runId || null,
         speakerId: fixture.speaker,
         fixtureId: fixture.id || `fixture-${index + 1}`,
         expectedLanguage: fixture.expectedLanguage || null,
