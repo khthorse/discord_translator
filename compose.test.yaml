@@ -1,4 +1,4 @@
-
+ 
 services:
   whisper:
     build:
@@ -98,7 +98,9 @@ services:
       AUDIO_TEST_CONTROL_PORT: ${AUDIO_TEST_CONTROL_PORT:-8766}
       AUDIO_TEST_CONTROL_TOKEN: ${AUDIO_TEST_CONTROL_TOKEN:-}
       AUDIO_TEST_SPEAKER_IDS: ${AUDIO_TEST_SPEAKER_IDS:-}
-      AUDIO_TEST_SPEAKER_TOKEN: ${AUDIO_TEST_SPEAKER_TOKEN:-}
+      AUDIO_TEST_SPEAKER_TOKENS: ${AUDIO_TEST_SPEAKER_TOKENS:-}
+      AUDIO_TEST_GUILD_ID: ${AUDIO_TEST_GUILD_ID:-}
+      AUDIO_TEST_CHANNEL_ID: ${AUDIO_TEST_CHANNEL_ID:-}
     volumes:
       - bot_data:/data
       - ./audio-tests/fixtures:/audio-tests/fixtures:ro
@@ -110,7 +112,7 @@ services:
     networks:
       - backend
       - edge
-  
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     profiles: ["tunnel"]
