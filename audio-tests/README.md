@@ -85,7 +85,17 @@ docker compose -p discord-translator-baseline -f compose.test.yaml up -d --build
 
 Then run the baseline profile inside its translator container with `--language-mode auto`.
 
-For the current language logic, switch back to `audio-test-harness` and use `discord-translator-test` as the project name. Stop the current test project before switching. Both projects reuse the downloaded model volumes, but their bot-data volumes are separate. The monitor samples Docker CPU and memory plus NVIDIA GPU utilization, VRAM, temperature, and power when available. CSV output is saved under `audio-tests/results/`.
+For the current language logic, switch back to `audio-test-harness` and use `discord-translator-test` as the project name. Stop the current test project before switching. Both projects reuse the downloaded model volumes, but their bot-data volumes are separate.
+
+The desktop overlay's remote relay uses the Cloudflare tunnel to reach the bot's authenticated WebSocket relay. If you use the overlay in relay mode during testing, start the test deployment with the tunnel profile enabled:
+
+```powershell
+docker compose --profile tunnel -p discord-translator-test -f compose.test.yaml up -d --build
+```
+
+The tunnel profile is optional; omit `--profile tunnel` if you are not using the remote overlay relay. Do not run the normal deployment and test deployment at the same time: both use the same Discord bot account and Cloudflare tunnel credentials. The test bot's private audio-test control API stays bound to localhost inside its container and is not routed through Cloudflare.
+
+The monitor samples Docker CPU and memory plus NVIDIA GPU utilization, VRAM, temperature, and power when available. CSV output is saved under `audio-tests/results/`.
 
 Translator JSONL events are written to Docker stdout and `/data/audio-test-logs/<run-id>.jsonl`. They include queue timing, service processing duration, detected language, translation count, and errors; transcript text and audio content are not included.
 
