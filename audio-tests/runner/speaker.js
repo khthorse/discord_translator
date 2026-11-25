@@ -168,7 +168,9 @@ export async function playFixtures({ guildId, channelId, fixtures, speakers, spe
         actualDurationMs: Date.now() - startedAt,
       }));
     });
-    await Promise.all(tasks);
+    const results = await Promise.allSettled(tasks);
+    const failed = results.find(result => result.status === 'rejected');
+    if (failed) throw failed.reason;
   } finally {
     for (const session of sessions) {
       if (session.connection && session.connection.state.status !== VoiceConnectionStatus.Destroyed) {
