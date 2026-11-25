@@ -1,12 +1,26 @@
 param(
   [Parameter(Mandatory = $true)]
   [string]$RunId,
-  [string]$ProjectName = "discord-translator-test",
+  [string]$ProjectName,
   [ValidateRange(1, 60)]
   [int]$IntervalSeconds = 1
 )
 
 $ErrorActionPreference = "Stop"
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\\..")).Path
+if (-not $ProjectName) {
+  $composeFile = Join-Path $repoRoot "compose.test.yaml"
+  $composeJson = @(& docker compose --project-directory $repoRoot -f $composeFile config --format json)
+  if ($LASTEXITCODE -ne 0 -or -not $composeJson) {
+    throw "Could not read the Compose project name from compose.test.yaml and the root .env file."
+  }
+  $composeConfig = ($composeJson -join [Environment]::NewLine) | ConvertFrom-Json
+  $ProjectName = [string]$composeConfig.name
+  if ([string]::IsNullOrWhiteSpace($ProjectName)) {
+    throw "Compose did not return a project name. Check AUDIO_TEST_COMPOSE_PROJECT_NAME in .env."
+  }
+}
 
 if ($RunId -notmatch '^[a-zA-Z0-9_-]{1,80}$') {
   throw "RunId may contain only letters, numbers, underscores and hyphens (max 80 characters)."
