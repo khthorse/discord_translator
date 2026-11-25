@@ -125,4 +125,3 @@ volumes:
     name: discord-translator_ollama_models
 
   bot_data:
-    name: discord-translator-test_bot_data
