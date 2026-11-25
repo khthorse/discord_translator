@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\\..")).Path
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 if (-not $ProjectName) {
   $composeFile = Join-Path $repoRoot "compose.test.yaml"
   $composeJson = @(& docker compose --project-directory $repoRoot -f $composeFile config --format json)
