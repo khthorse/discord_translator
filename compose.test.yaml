@@ -1,4 +1,5 @@
- 
+name: ${COMPOSE_PROJECT_NAME:-discord-translator}
+
 services:
   whisper:
     build:
