@@ -1,4 +1,5 @@
- 
+name: ${AUDIO_TEST_COMPOSE_PROJECT_NAME:-discord-translator-ld}
+
 services:
   whisper:
     build:
