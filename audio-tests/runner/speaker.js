@@ -1,5 +1,4 @@
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import { Readable } from 'node:stream';
 import {
   AudioPlayerStatus,
@@ -21,7 +20,6 @@ function parsePcmWav(buffer) {
   if (buffer.length < 44 || buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WAVE') {
     throw new Error('Fixture must be a valid PCM WAV file.');
   }
-
   let offset = 12;
   let format = null;
   let data = null;
@@ -31,7 +29,6 @@ function parsePcmWav(buffer) {
     const start = offset + 8;
     const end = start + chunkSize;
     if (end > buffer.length) throw new Error('WAV file contains an incomplete chunk.');
-
     if (chunkId === 'fmt ') {
       if (chunkSize < 16) throw new Error('WAV format chunk is too short.');
       format = {
@@ -43,36 +40,22 @@ function parsePcmWav(buffer) {
     } else if (chunkId === 'data') {
       data = buffer.subarray(start, end);
     }
-
     offset = end + (chunkSize % 2);
   }
-
   if (!format || !data) throw new Error('WAV file is missing its format or audio data chunk.');
-  if (
-    format.audioFormat !== 1 ||
-    format.channels !== CHANNELS ||
-    format.sampleRate !== SAMPLE_RATE ||
-    format.bitsPerSample !== BITS_PER_SAMPLE
-  ) {
+  if (format.audioFormat !== 1 || format.channels !== CHANNELS || format.sampleRate !== SAMPLE_RATE || format.bitsPerSample !== BITS_PER_SAMPLE) {
     throw new Error('Fixture must be uncompressed PCM, 48 kHz, stereo, 16-bit WAV.');
   }
   if (data.length === 0 || data.length % (CHANNELS * BITS_PER_SAMPLE / 8) !== 0) {
     throw new Error('WAV audio data is empty or not sample-aligned.');
   }
-
   return data;
 }
 
 function waitForPlayerToFinish(player) {
   return new Promise((resolve, reject) => {
-    const onIdle = () => {
-      cleanup();
-      resolve();
-    };
-    const onError = error => {
-      cleanup();
-      reject(error);
-    };
+    const onIdle = () => { cleanup(); resolve(); };
+    const onError = error => { cleanup(); reject(error); };
     const cleanup = () => {
       player.off(AudioPlayerStatus.Idle, onIdle);
       player.off('error', onError);
@@ -82,127 +65,113 @@ function waitForPlayerToFinish(player) {
   });
 }
 
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+const delay = ms => new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
 
-export async function playFixtures({ guildId, channelId, fixtures, gapMs = 1000, expectedSpeakerId }) {
-  const token = process.env.AUDIO_TEST_SPEAKER_TOKEN || '';
-  if (!token) throw new Error('AUDIO_TEST_SPEAKER_TOKEN is not configured.');
+export async function playFixtures({ guildId, channelId, fixtures, speakers, speakerCredentials }) {
   if (!/^\d{17,20}$/.test(guildId || '') || !/^\d{17,20}$/.test(channelId || '')) {
-    throw new Error('Valid --guild-id and --channel-id values are required.');
+    throw new Error('Valid guildId and channelId values are required.');
   }
-  if (!Array.isArray(fixtures) || fixtures.length === 0) throw new Error('Manifest must contain at least one fixture.');
-  if (!Number.isInteger(gapMs) || gapMs < 0 || gapMs > 60_000) {
-    throw new Error('Manifest gapMs must be an integer between 0 and 60000.');
+  if (!Array.isArray(fixtures) || fixtures.length === 0) throw new Error('Schedule must contain at least one fixture event.');
+  if (!Array.isArray(speakers) || speakers.length < 1) throw new Error('At least one speaker must be configured.');
+  if (!Array.isArray(speakerCredentials) || speakerCredentials.length !== speakers.length) {
+    throw new Error('Speaker credentials must match the manifest speakers one-to-one.');
   }
 
-  // Validate and load every file before connecting to Discord, so a bad fixture
-  // cannot leave a partially played test sequence.
-  const loadedFixtures = [];
+  const speakerByKey = new Map(speakers.map(speaker => [speaker.id, speaker]));
+  const credentialByKey = new Map(speakerCredentials.map(item => [item.speakerId, item]));
+  const pcmByPath = new Map();
+  const loadedEvents = [];
   for (const [index, fixture] of fixtures.entries()) {
-    if (!fixture || typeof fixture.path !== 'string' || !fixture.path) {
-      throw new Error(`Manifest fixture ${index + 1} is missing its path.`);
+    if (!fixture || typeof fixture.path !== 'string' || !speakerByKey.has(fixture.speaker)) {
+      throw new Error(`Scheduled fixture ${index + 1} has an invalid speaker or path.`);
     }
-    const stat = await fs.stat(fixture.path);
-    if (!stat.isFile() || stat.size > MAX_FIXTURE_BYTES) {
-      throw new Error(`Fixture must be a file no larger than 100 MB: ${fixture.path}`);
+    if (!Number.isSafeInteger(fixture.startOffsetMs) || fixture.startOffsetMs < 0) {
+      throw new Error(`Scheduled fixture ${index + 1} needs a non-negative integer startOffsetMs.`);
     }
-    const pcm = parsePcmWav(await fs.readFile(fixture.path));
+    let pcm = pcmByPath.get(fixture.path);
+    if (!pcm) {
+      const stat = await fs.stat(fixture.path);
+      if (!stat.isFile() || stat.size > MAX_FIXTURE_BYTES) throw new Error(`Fixture must be a file no larger than 100 MB: ${fixture.path}`);
+      pcm = parsePcmWav(await fs.readFile(fixture.path));
+      pcmByPath.set(fixture.path, pcm);
+    }
     const durationMs = Math.round(pcm.length / (SAMPLE_RATE * CHANNELS * (BITS_PER_SAMPLE / 8)) * 1000);
-    loadedFixtures.push({ ...fixture, pcm, durationMs });
+    loadedEvents.push({ ...fixture, pcm, durationMs });
   }
 
-  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
-  let connection;
-  let stage = 'client_login';
-  client.on('error', error => console.error(JSON.stringify({ event: 'speaker_client_error', message: error.message, stack: error.stack })));
+  const sessions = [];
   try {
-    console.log(JSON.stringify({ event: 'speaker_stage', stage }));
-    await client.login(token);
-    console.log(JSON.stringify({ event: 'speaker_logged_in', speakerId: client.user.id }));
-    if (expectedSpeakerId && client.user.id !== expectedSpeakerId) {
-      throw new Error(`Logged-in speaker bot ID ${client.user.id} does not match manifest discordUserId ${expectedSpeakerId}.`);
+    for (const speaker of speakers) {
+      const credential = credentialByKey.get(speaker.id);
+      if (!credential?.token || credential.discordUserId !== speaker.discordUserId) {
+        throw new Error(`Missing or mismatched token mapping for manifest speaker ${speaker.id}.`);
+      }
+      const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
+      const session = { speaker, client, connection: null, player: null };
+      sessions.push(session);
+      client.on('error', error => console.error(JSON.stringify({ event: 'speaker_client_error', speakerId: speaker.id, message: error.message })));
+      console.log(JSON.stringify({ event: 'speaker_connecting', speakerId: speaker.id }));
+      await client.login(credential.token);
+      if (client.user.id !== speaker.discordUserId) {
+        throw new Error(`Token for ${speaker.id} authenticated as Discord user ${client.user.id}, but manifest expects ${speaker.discordUserId}.`);
+      }
+      const guild = await client.guilds.fetch(guildId);
+      const channel = await guild.channels.fetch(channelId);
+      if (!channel?.isVoiceBased() || !channel.joinable) {
+        throw new Error(`Speaker ${speaker.id} cannot join the selected voice channel. Check View Channel and Connect permissions.`);
+      }
+      session.connection = joinVoiceChannel({
+        channelId: channel.id,
+        guildId: guild.id,
+        adapterCreator: guild.voiceAdapterCreator,
+        selfDeaf: true,
+      });
+      session.connection.on('error', error => console.error(JSON.stringify({ event: 'speaker_voice_error', speakerId: speaker.id, message: error.message })));
+      await entersState(session.connection, VoiceConnectionStatus.Ready, 20_000);
+      session.player = createAudioPlayer();
+      session.player.on('error', error => console.error(JSON.stringify({ event: 'speaker_player_error', speakerId: speaker.id, message: error.message })));
+      session.connection.subscribe(session.player);
+      console.log(JSON.stringify({ event: 'speaker_ready', speakerId: speaker.id, discordUserId: client.user.id }));
     }
-    stage = 'guild_fetch';
-    console.log(JSON.stringify({ event: 'speaker_stage', stage, guildId }));
-    const guild = await client.guilds.fetch(guildId);
-    stage = 'channel_fetch';
-    console.log(JSON.stringify({ event: 'speaker_stage', stage, channelId }));
-    const channel = await guild.channels.fetch(channelId);
-    console.log(JSON.stringify({ event: 'speaker_channel_fetched', channelId, channelType: channel?.type ?? null, viewable: channel?.viewable ?? null, joinable: channel?.joinable ?? null }));
-    if (!channel?.isVoiceBased() || !channel.joinable) {
-      throw new Error('Speaker bot cannot join the selected voice channel. Check its channel access and Connect permission.');
-    }
 
-    stage = 'voice_connection';
-    console.log(JSON.stringify({ event: 'speaker_stage', stage }));
-    connection = joinVoiceChannel({
-      channelId: channel.id,
-      guildId: guild.id,
-      adapterCreator: guild.voiceAdapterCreator,
-      selfDeaf: true,
-    });
-    connection.on('stateChange', (oldState, newState) => console.log(JSON.stringify({ event: 'speaker_voice_state', oldState: oldState.status, newState: newState.status })));
-    connection.on('error', error => console.error(JSON.stringify({ event: 'speaker_voice_error', message: error.message, stack: error.stack })));
-    try {
-      await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
-    } catch (error) {
-      console.error(JSON.stringify({ event: 'speaker_voice_ready_failed', connectionState: connection.state.status, message: error.message, stack: error.stack }));
-      throw error;
-    }
-
-    stage = 'audio_player_setup';
-    const player = createAudioPlayer();
-    player.on('error', error => console.error(JSON.stringify({ event: 'speaker_player_error', message: error.message, stack: error.stack })));
-    connection.subscribe(player);
-    console.log(JSON.stringify({
-      event: 'speaker_playlist_ready',
-      speakerId: client.user.id,
-      guildId,
-      channelId,
-      fixtureCount: loadedFixtures.length,
-      gapMs,
-    }));
-
-    stage = 'fixture_playback';
-    for (const [index, fixture] of loadedFixtures.entries()) {
-      if (index > 0 && gapMs > 0) await delay(gapMs);
-      const scheduledAt = Date.now();
-      console.log(JSON.stringify({
-        event: 'speaker_playback_scheduled',
-        speakerId: client.user.id,
-        fixtureId: fixture.id || `fixture-${index + 1}`,
-        fixture: fixture.path,
-        expectedLanguage: fixture.expectedLanguage || null,
-        durationMs: fixture.durationMs,
-        scheduledAt: new Date(scheduledAt).toISOString(),
-      }));
-
+    const startAt = Date.now() + 5000;
+    console.log(JSON.stringify({ event: 'schedule_armed', startAt: new Date(startAt).toISOString(), eventCount: loadedEvents.length, speakerCount: sessions.length }));
+    const tasks = loadedEvents.map(async (fixture, index) => {
+      const session = sessions.find(item => item.speaker.id === fixture.speaker);
+      const waitMs = startAt + fixture.startOffsetMs - Date.now();
+      if (waitMs > 0) await delay(waitMs);
+      const player = session.player;
+      if (player.state.status !== AudioPlayerStatus.Idle) {
+        throw new Error(`Schedule collision: speaker ${fixture.speaker} was still playing when ${fixture.id || index + 1} was due.`);
+      }
       const startedAt = Date.now();
+      console.log(JSON.stringify({
+        event: 'speaker_playback_started',
+        runId: fixture.runId || null,
+        speakerId: fixture.speaker,
+        fixtureId: fixture.id || `fixture-${index + 1}`,
+        expectedLanguage: fixture.expectedLanguage || null,
+        scheduledOffsetMs: fixture.startOffsetMs,
+        actualOffsetMs: startedAt - startAt,
+        fixtureDurationMs: fixture.durationMs,
+        startedAt: new Date(startedAt).toISOString(),
+      }));
       const finished = waitForPlayerToFinish(player);
-      const resource = createAudioResource(Readable.from([fixture.pcm]), { inputType: StreamType.Raw });
-      console.log(JSON.stringify({ event: 'speaker_playback_started', speakerId: client.user.id, fixtureId: fixture.id || `fixture-${index + 1}` }));
-      player.play(resource);
+      player.play(createAudioResource(Readable.from([fixture.pcm]), { inputType: StreamType.Raw }));
       await finished;
-
       console.log(JSON.stringify({
         event: 'speaker_playback_finished',
-        speakerId: client.user.id,
+        speakerId: fixture.speaker,
         fixtureId: fixture.id || `fixture-${index + 1}`,
-        fixture: fixture.path,
         expectedLanguage: fixture.expectedLanguage || null,
-        startedAt: new Date(startedAt).toISOString(),
-        finishedAt: new Date().toISOString(),
         actualDurationMs: Date.now() - startedAt,
-        fixtureDurationMs: fixture.durationMs,
       }));
-    }
-  } catch (error) {
-    console.error(JSON.stringify({ event: 'speaker_run_failed', stage, connectionState: connection?.state?.status ?? null, message: error.message, stack: error.stack }));
-    throw error;
+    });
+    await Promise.all(tasks);
   } finally {
-    connection?.destroy();
-    client.destroy();
+    for (const session of sessions) {
+      session.connection?.destroy();
+      session.client.destroy();
+    }
   }
 }
